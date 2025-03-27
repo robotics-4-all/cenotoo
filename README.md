@@ -55,7 +55,7 @@ Ensure the following are installed on **both nodes**:
 
 On **both nodes**, clone the GitHub repository:
 ```
-git clone https://github.com/dimitrisna/infrastructure.git
+git clone https://github.com/AuthEceSoftEng/ecoready-observatory.git
 cd infrastructure
 ```
 
