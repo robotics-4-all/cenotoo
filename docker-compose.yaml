@@ -24,7 +24,7 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: '${KAFKA_CLUSTER_ID}'  # Cluster ID generated externally
-      KAFKA_SUPER_USERS: User:Admin;User:ANONYMOUS
+      KAFKA_SUPER_USERS: User:Admin
     volumes:
       - ./kafka/kafka.jaas.conf:/etc/kafka/configs/kafka_server_jaas.conf
 
@@ -43,7 +43,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: 'BROKER://${KAFKA_BROKER2_IP}:19093,EXTERNAL://${KAFKA_BROKER2_IP}:59192'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@${KAFKA_BROKER1_IP}:29093,2@${KAFKA_BROKER2_IP}:29094'
       CLUSTER_ID: '${KAFKA_CLUSTER_ID}'
-      KAFKA_SUPER_USERS: User:Admin;User:ANONYMOUS
+      KAFKA_SUPER_USERS: User:Admin
     volumes:
       - ./kafka/kafka.jaas.conf:/etc/kafka/configs/kafka_server_jaas.conf
 
@@ -60,6 +60,8 @@ services:
       CASSANDRA_SEEDS: ${CASSANDRA_SEEDS}
       CASSANDRA_BROADCAST_ADDRESS: ${CASSANDRA_BROADCAST_ADDRESS1}
       CASSANDRA_LISTEN_ADDRESS: cassandra1
+      CASSANDRA_AUTHENTICATOR: PasswordAuthenticator
+      CASSANDRA_AUTHORIZER: CassandraAuthorizer
     volumes:
       - ./cassandra1_data:/var/lib/cassandra
 
@@ -76,6 +78,8 @@ services:
       CASSANDRA_SEEDS: ${CASSANDRA_SEEDS}
       CASSANDRA_BROADCAST_ADDRESS: ${CASSANDRA_BROADCAST_ADDRESS2}
       CASSANDRA_LISTEN_ADDRESS: cassandra2
+      CASSANDRA_AUTHENTICATOR: PasswordAuthenticator
+      CASSANDRA_AUTHORIZER: CassandraAuthorizer
     volumes:
       - ./cassandra2_data:/var/lib/cassandra
 
@@ -225,7 +229,7 @@ services:
     environment:
       KSQL_CONFIG_DIR: "/etc/ksqldb"
       KSQL_LISTENERS: "http://0.0.0.0:8088"
-      KSQL_BOOTSTRAP_SERVERS: "${KAFKA_BROKER1_IP}:9092,${KAFKA_BROKER2_IP}:9092"
+      KSQL_BOOTSTRAP_SERVERS: "${KAFKA_BROKER1_IP}:19092,${KAFKA_BROKER2_IP}:19093"
       KSQL_KSQL_SERVICE_ID: "ksqldb_service1"
 
   # ksqlDB Server 2
@@ -239,7 +243,7 @@ services:
     environment:
       KSQL_CONFIG_DIR: "/etc/ksqldb"
       KSQL_LISTENERS: "http://0.0.0.0:8088"
-      KSQL_BOOTSTRAP_SERVERS: "${KAFKA_BROKER1_IP}:9092,${KAFKA_BROKER2_IP}:9092"
+      KSQL_BOOTSTRAP_SERVERS: "${KAFKA_BROKER1_IP}:19092,${KAFKA_BROKER2_IP}:19093"
       KSQL_KSQL_SERVICE_ID: "ksqldb_service2"
 
 volumes:

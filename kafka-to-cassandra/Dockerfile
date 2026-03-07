@@ -19,4 +19,4 @@ ENV PROJECT_NAME=your_keyspace_name
 ENV ORGANIZATION_NAME=your_table_name
 
 # Run consume_and_store.py when the container launches
-CMD ["python", "consumerd.py"]
+CMD ["python", "consumer.py"]

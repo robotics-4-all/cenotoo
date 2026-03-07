@@ -10,7 +10,7 @@ RUN apt-get update && \
     rm get-pip.py
 
 # Install apache-flink using pip
-RUN python -m pip install apache-flink==1.19.0
+RUN python -m pip install apache-flink==1.18.1
 
 # Download the Flink SQL Kafka connector and the Kafka clients JAR files and place them in the required directories
 RUN wget https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/3.0.2-1.18/flink-sql-connector-kafka-3.0.2-1.18.jar -P /opt/flink/lib/ && \
