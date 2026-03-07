@@ -1,6 +1,6 @@
 apiVersion: v2
-name: eco-ready
-description: ECO-READY distributed data streaming infrastructure
+name: cenotoo
+description: Cenotoo distributed data streaming infrastructure
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

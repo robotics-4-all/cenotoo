@@ -1,4 +1,4 @@
-# **ECO-READY Infrastructure**
+# **Cenotoo**
 
 A distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose for development and Kubernetes (Helm) for production.
 
@@ -28,7 +28,7 @@ All services include health checks. Cassandra 2 waits for Cassandra 1, TaskManag
 
 ### Kubernetes (Production)
 
-Deployed via Helm chart (`deploy/helm/eco-ready/`) using:
+Deployed via Helm chart (`deploy/helm/cenotoo/`) using:
 - **Strimzi** for Kafka (KRaft, SCRAM-SHA-512, KafkaNodePools)
 - **K8ssandra** for Cassandra (PasswordAuthenticator, optional Medusa backups)
 - **Flink Operator** for Flink (K8s-native HA, checkpoints, savepoints)
@@ -105,17 +105,29 @@ Deployed via Helm chart (`deploy/helm/eco-ready/`) using:
 
 ---
 
-## **Kubernetes Deployment**
+## **Kubernetes Deployment (k3s)**
+
+Bootstrap scripts install all prerequisites and deploy Cenotoo on a k3s cluster. Run them in order:
 
 ```bash
-# Default values
-helm install eco-ready deploy/helm/eco-ready/
+./scripts/01-install-k3s.sh              # k3s + Helm
+./scripts/02-install-cert-manager.sh     # cert-manager (required by K8ssandra)
+./scripts/03-install-strimzi-operator.sh # Strimzi Kafka operator
+./scripts/04-install-k8ssandra-operator.sh # K8ssandra Cassandra operator
+./scripts/05-install-flink-operator.sh   # Flink Kubernetes operator
+./scripts/06-install-monitoring.sh       # kube-prometheus-stack (optional)
+./scripts/07-deploy-cenotoo.sh           # Deploy Cenotoo Helm chart
+```
 
-# Production overrides
-helm install eco-ready deploy/helm/eco-ready/ -f deploy/helm/eco-ready/values-production.yaml
+Each script is idempotent (safe to re-run) and waits for readiness before completing.
+Version overrides are supported via environment variables (e.g., `STRIMZI_VERSION=0.51.0`).
 
-# Staging overrides
-helm install eco-ready deploy/helm/eco-ready/ -f deploy/helm/eco-ready/values-staging.yaml
+### Manual Helm install (existing cluster)
+
+```bash
+helm install cenotoo deploy/helm/cenotoo/
+helm install cenotoo deploy/helm/cenotoo/ -f deploy/helm/cenotoo/values-production.yaml
+helm install cenotoo deploy/helm/cenotoo/ -f deploy/helm/cenotoo/values-staging.yaml
 ```
 
 See `values.yaml` for all configurable parameters including monitoring, backup, and resource limits.

@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose (dev, no ZooKeeper, simplified Flink) and Kubernetes (Helm chart with Strimzi, K8ssandra, Flink Operator, Prometheus/Grafana observability, Medusa backups). Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. Pure infrastructure-as-code with utility scripts.
+Cenotoo — distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose (dev, no ZooKeeper, simplified Flink) and Kubernetes (Helm chart with Strimzi, K8ssandra, Flink Operator, Prometheus/Grafana observability, Medusa backups). Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. Pure infrastructure-as-code with utility scripts.
 
 ## STRUCTURE
 
@@ -32,6 +32,13 @@ centoo/
 ├── cassandra/
 │   └── create_cassandra_tables.py  # Schema init: metadata keyspace + 5 tables
 ├── scripts/
+│   ├── 01-install-k3s.sh       # k3s install + kubeconfig + Helm
+│   ├── 02-install-cert-manager.sh      # cert-manager (K8ssandra prerequisite)
+│   ├── 03-install-strimzi-operator.sh  # Strimzi Kafka operator
+│   ├── 04-install-k8ssandra-operator.sh # K8ssandra Cassandra operator
+│   ├── 05-install-flink-operator.sh    # Flink Kubernetes operator
+│   ├── 06-install-monitoring.sh        # kube-prometheus-stack (optional)
+│   ├── 07-deploy-cenotoo.sh    # Deploy Cenotoo Helm chart on k3s
 │   ├── build-images.sh         # Builds 3 Docker images (flink, kafka-to-cassandra, kafka-live-consumer)
 │   └── generate-cluster-id.py  # UUID→base64 Kafka cluster ID generator
 ├── tests/                      # pytest test suite (21 tests)
@@ -41,7 +48,7 @@ centoo/
 │   └── test_cluster_id.py
 ├── deploy/
 │   └── helm/
-│       └── eco-ready/              # Helm chart for Kubernetes deployment
+│       └── cenotoo/                # Helm chart for Kubernetes deployment
 │           ├── Chart.yaml
 │           ├── values.yaml         # Default values (all configurable parameters)
 │           ├── values-staging.yaml
@@ -56,7 +63,8 @@ centoo/
 │               │   └── superuser-secret.yaml   # Cassandra superuser credentials
 │               ├── flink/
 │               │   ├── flink-deployment.yaml   # FlinkDeployment CR (K8s-native HA)
-│               │   └── flink-pvc.yaml          # PVC for HA + checkpoints + savepoints
+│               │   ├── flink-pvc.yaml          # PVC for HA + checkpoints + savepoints
+│               │   └── flink-rbac.yaml         # ServiceAccount + Role + RoleBinding for Flink
 │               ├── consumers/
 │               │   ├── cassandra-writer.yaml   # Deployment: kafka-to-cassandra
 │               │   └── live-consumer.yaml      # Deployment: kafka-live-consumer
@@ -87,7 +95,7 @@ centoo/
 | Add/run tests | `tests/` | `pytest tests/ -v` — uses importlib for module isolation |
 | Lint/format | `pyproject.toml` | `ruff check .` and `ruff format .` |
 | CI pipeline | `.github/workflows/ci.yml` | Runs on push/PR to main: lint → typecheck → test |
-| K8s deployment | `deploy/helm/eco-ready/` | `helm install eco-ready deploy/helm/eco-ready/` — requires Strimzi, K8ssandra, Flink operators |
+| K8s deployment | `deploy/helm/cenotoo/` | `helm install cenotoo deploy/helm/cenotoo/` — requires Strimzi, K8ssandra, Flink operators |
 | K8s config overrides | `values-staging.yaml`, `values-production.yaml` | `helm install -f values-production.yaml` |
 | Kafka K8s config | `templates/kafka/` | Strimzi Kafka CR + KafkaUser CR with SCRAM-SHA-512 |
 | Cassandra K8s config | `templates/cassandra/` | K8ssandra CR + superuser secret |
@@ -117,7 +125,16 @@ centoo/
 ## COMMANDS
 
 ```bash
-# Generate Kafka cluster ID (run once)
+# k3s bootstrap (run scripts in order)
+./scripts/01-install-k3s.sh
+./scripts/02-install-cert-manager.sh
+./scripts/03-install-strimzi-operator.sh
+./scripts/04-install-k8ssandra-operator.sh
+./scripts/05-install-flink-operator.sh
+./scripts/06-install-monitoring.sh       # optional
+./scripts/07-deploy-cenotoo.sh
+
+# Generate Kafka cluster ID (run once, Docker Compose only)
 python scripts/generate-cluster-id.py
 
 # Build all Docker images

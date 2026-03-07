@@ -1,9 +1,9 @@
 apiVersion: k8ssandra.io/v1alpha1
 kind: K8ssandraCluster
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-cassandra
+  name: {{ include "cenotoo.fullname" . }}-cassandra
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
 spec:
   auth: true
   {{- if .Values.backup.medusa.enabled }}
@@ -19,7 +19,7 @@ spec:
   cassandra:
     serverVersion: {{ .Values.cassandra.version | quote }}
     superuserSecretRef:
-      name: {{ include "eco-ready.fullname" . }}-cassandra-superuser
+      name: {{ include "cenotoo.fullname" . }}-cassandra-superuser
     config:
       cassandraYaml:
         authenticator: PasswordAuthenticator

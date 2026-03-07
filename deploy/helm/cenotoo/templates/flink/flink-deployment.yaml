@@ -1,9 +1,9 @@
 apiVersion: flink.apache.org/v1beta1
 kind: FlinkDeployment
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-flink
+  name: {{ include "cenotoo.fullname" . }}-flink
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
 spec:
   image: "{{ .Values.flink.image.repository }}:{{ .Values.flink.image.tag }}"
   imagePullPolicy: {{ .Values.flink.image.pullPolicy }}
@@ -36,7 +36,7 @@ spec:
         volumes:
           - name: flink-data
             persistentVolumeClaim:
-              claimName: {{ include "eco-ready.fullname" . }}-flink-data
+              claimName: {{ include "cenotoo.fullname" . }}-flink-data
   taskManager:
     replicas: {{ .Values.flink.taskManager.replicas }}
     resource:
@@ -52,4 +52,4 @@ spec:
         volumes:
           - name: flink-data
             persistentVolumeClaim:
-              claimName: {{ include "eco-ready.fullname" . }}-flink-data
+              claimName: {{ include "cenotoo.fullname" . }}-flink-data

@@ -3,14 +3,14 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-kafka
+  name: {{ include "cenotoo.fullname" . }}-kafka
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
-    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+    {{- include "cenotoo.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "cenotoo.fullname" . }}-kafka
 spec:
   selector:
     matchLabels:
-      strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+      strimzi.io/cluster: {{ include "cenotoo.fullname" . }}-kafka
       strimzi.io/kind: Kafka
   podMetricsEndpoints:
     - path: /metrics
@@ -25,14 +25,14 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-kafka-exporter
+  name: {{ include "cenotoo.fullname" . }}-kafka-exporter
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
-    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+    {{- include "cenotoo.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "cenotoo.fullname" . }}-kafka
 spec:
   selector:
     matchLabels:
-      strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+      strimzi.io/cluster: {{ include "cenotoo.fullname" . }}-kafka
       strimzi.io/kind: KafkaExporter  
   podMetricsEndpoints:
     - path: /metrics
@@ -44,13 +44,13 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-flink
+  name: {{ include "cenotoo.fullname" . }}-flink
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app: {{ include "eco-ready.fullname" . }}-flink
+      app: {{ include "cenotoo.fullname" . }}-flink
       type: flink-native-kubernetes
   podMetricsEndpoints:
     - port: prom
