@@ -2,8 +2,8 @@ nameOverride: ""
 fullnameOverride: ""
 
 kafka:
-  version: "3.7.0"
-  metadataVersion: "3.7-IV4"
+  version: "4.2.0"
+  metadataVersion: "4.2-IV1"
   replicas: 2
   storage:
     size: 10Gi
