@@ -6,13 +6,13 @@
 
 ## OVERVIEW
 
-ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink + ksqlDB) orchestrated via Docker Compose, designed for **two-node** HA deployment. Python consumers bridge Kafka→Cassandra. No application framework; pure infrastructure-as-code with utility scripts.
+ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink) orchestrated via Docker Compose, designed for **two-node** HA deployment. Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. No application framework; pure infrastructure-as-code with utility scripts.
 
 ## STRUCTURE
 
 ```
 centoo/
-├── docker-compose.yaml        # All services: kafka×2, cassandra×2, flink×4, zoo×3, ksqldb×2
+├── docker-compose.yaml        # All services: kafka×2, cassandra×2, flink×4, zoo×3
 ├── .env.example                # Node-specific IPs (must cp to .env on each node)
 ├── requirements.txt            # Root deps: cassandra-driver, python-dotenv
 ├── kafka/
@@ -26,7 +26,9 @@ centoo/
 │   ├── Dockerfile
 │   └── requirements.txt        # confluent_kafka only
 ├── flink/
-│   └── Dockerfile              # flink:1.18.1 + PyFlink 1.18.1 + SQL Kafka connector JAR
+│   ├── Dockerfile              # flink:1.18.1 + PyFlink 1.18.1 + SQL Kafka connector JAR
+│   └── sql/
+│       └── kafka_source.sql    # Flink SQL Kafka source table definition
 ├── cassandra/
 │   └── create_cassandra_tables.py  # Schema init: metadata keyspace + 5 tables
 ├── scripts/
@@ -46,7 +48,8 @@ centoo/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add/modify a service | `docker-compose.yaml` | All 14 services defined here |
+| Add/modify a service | `docker-compose.yaml` | All 12 services defined here |
+| Add Flink SQL jobs | `flink/sql/` | Submit via `sql-client.sh -f`; no native Cassandra sink — use DataStream API |
 | Change Cassandra schema | `cassandra/create_cassandra_tables.py` | Run on ONE node only |
 | Modify Kafka auth | `kafka/kafka.jaas.conf` | Creds via `$KAFKA_USERNAME`, `$KAFKA_PASSWORD` env vars |
 | Change consumer logic | `kafka-to-cassandra/consumer.py` or `kafka-live-consumer/consumer.py` | Each is self-contained |
@@ -71,7 +74,7 @@ centoo/
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
-- **ksqlDB licensed under CCL** — cannot be included in a commercial product without Confluent agreement; planned for removal (replace with Flink SQL)
+- **Flink SQL has no native Cassandra sink** — writing to Cassandra requires Java/Scala DataStream API with `CassandraSink`, not pure SQL
 
 ## COMMANDS
 
@@ -83,10 +86,10 @@ python scripts/generate-cluster-id.py
 bash scripts/build-images.sh
 
 # Node 1: start services
-docker-compose up -d kafka1 cassandra1 jobmanager1 taskmanager1 zoo1 ksqldb-server1
+docker-compose up -d kafka1 cassandra1 jobmanager1 taskmanager1 zoo1
 
 # Node 2: start services
-docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3 ksqldb-server2
+docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3
 
 # Init Cassandra schema (one node only, after Cassandra is healthy)
 pip install -r requirements.txt

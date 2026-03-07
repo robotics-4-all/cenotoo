@@ -216,33 +216,6 @@ services:
     environment:
       ZOO_MY_ID: 3
       ZOO_SERVERS: server.1=${ZOOKEEPER1_IP}:2888:3888;2181 server.2=${ZOOKEEPER2_IP}:2888:3888;2181 server.3=0.0.0.0:2889:3889;2182
-      # ksqlDB Server 1
-  ksqldb-server1:
-    image: confluentinc/ksqldb-server:latest
-    container_name: ksqldb-server1
-    restart: always
-    hostname: ksqldb-server1
-    ports:
-      - 8088:8088
-    environment:
-      KSQL_CONFIG_DIR: "/etc/ksqldb"
-      KSQL_LISTENERS: "http://0.0.0.0:8088"
-      KSQL_BOOTSTRAP_SERVERS: "${KAFKA_BROKER1_IP}:19092,${KAFKA_BROKER2_IP}:19093"
-      KSQL_KSQL_SERVICE_ID: "ksqldb_service1"
-
-  # ksqlDB Server 2
-  ksqldb-server2:
-    image: confluentinc/ksqldb-server:latest
-    container_name: ksqldb-server2
-    restart: always
-    hostname: ksqldb-server2
-    ports:
-      - 8089:8088
-    environment:
-      KSQL_CONFIG_DIR: "/etc/ksqldb"
-      KSQL_LISTENERS: "http://0.0.0.0:8088"
-      KSQL_BOOTSTRAP_SERVERS: "${KAFKA_BROKER1_IP}:19092,${KAFKA_BROKER2_IP}:19093"
-      KSQL_KSQL_SERVICE_ID: "ksqldb_service2"
 
 volumes:
   recovery:
