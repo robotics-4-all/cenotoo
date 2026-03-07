@@ -53,7 +53,7 @@ backup:
     enabled: true
     storageProperties:
       storageProvider: s3_compatible
-      bucketName: eco-ready-backups
+      bucketName: cenotoo-backups
       storageSecretRef:
         name: medusa-bucket-key
       prefix: production

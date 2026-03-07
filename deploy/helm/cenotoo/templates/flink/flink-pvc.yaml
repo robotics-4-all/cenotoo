@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-flink-data
+  name: {{ include "cenotoo.fullname" . }}-flink-data
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce

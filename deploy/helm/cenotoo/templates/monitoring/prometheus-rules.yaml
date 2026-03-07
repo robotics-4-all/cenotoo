@@ -2,9 +2,9 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-alerts
+  name: {{ include "cenotoo.fullname" . }}-alerts
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
     {{- with .Values.monitoring.alerts.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

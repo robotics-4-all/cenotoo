@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-kafka-metrics
+  name: {{ include "cenotoo.fullname" . }}-kafka-metrics
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
 data:
   kafka-metrics-config.yml: |
     lowercaseOutputName: true

@@ -1,10 +1,10 @@
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaNodePool
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-controller
+  name: {{ include "cenotoo.fullname" . }}-controller
   labels:
-    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "cenotoo.fullname" . }}-kafka
+    {{- include "cenotoo.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.kafka.controller.replicas }}
   roles:
@@ -25,10 +25,10 @@ spec:
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaNodePool
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-broker
+  name: {{ include "cenotoo.fullname" . }}-broker
   labels:
-    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "cenotoo.fullname" . }}-kafka
+    {{- include "cenotoo.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.kafka.replicas }}
   roles:
@@ -49,9 +49,9 @@ spec:
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
-  name: {{ include "eco-ready.fullname" . }}-kafka
+  name: {{ include "cenotoo.fullname" . }}-kafka
   labels:
-    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- include "cenotoo.labels" . | nindent 4 }}
   annotations:
     strimzi.io/node-pools: enabled
     strimzi.io/kraft: enabled
@@ -86,7 +86,7 @@ spec:
       type: jmxPrometheusExporter
       valueFrom:
         configMapKeyRef:
-          name: {{ include "eco-ready.fullname" . }}-kafka-metrics
+          name: {{ include "cenotoo.fullname" . }}-kafka-metrics
           key: kafka-metrics-config.yml
     {{- end }}
   entityOperator:
