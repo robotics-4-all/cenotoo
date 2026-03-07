@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-flink-data
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.flink.storage.storageClassName }}
+  storageClassName: {{ .Values.flink.storage.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.flink.storage.size }}

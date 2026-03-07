@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-cassandra-writer
+  labels:
+    app.kubernetes.io/component: cassandra-writer
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.consumers.cassandraWriter.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: cassandra-writer
+      {{- include "eco-ready.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: cassandra-writer
+        {{- include "eco-ready.selectorLabels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: cassandra-writer
+          image: "{{ .Values.consumers.cassandraWriter.image.repository }}:{{ .Values.consumers.cassandraWriter.image.tag }}"
+          imagePullPolicy: {{ .Values.consumers.cassandraWriter.image.pullPolicy }}
+          env:
+            - name: COLLECTION_NAME
+              value: {{ .Values.consumers.cassandraWriter.env.collectionName | quote }}
+            - name: PROJECT_NAME
+              value: {{ .Values.consumers.cassandraWriter.env.projectName | quote }}
+            - name: ORGANIZATION_NAME
+              value: {{ .Values.consumers.cassandraWriter.env.organizationName | quote }}
+            - name: KAFKA_BROKER
+              value: {{ include "eco-ready.fullname" . }}-kafka-kafka-bootstrap:9092
+            - name: CASSANDRA_NODES
+              value: {{ include "eco-ready.fullname" . }}-cassandra-{{ .Values.cassandra.datacenterName }}-service
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "eco-ready.fullname" . }}-kafka-credentials
+                  key: username
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "eco-ready.fullname" . }}-kafka-credentials
+                  key: password
+            - name: CASSANDRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "eco-ready.fullname" . }}-cassandra-superuser
+                  key: username
+            - name: CASSANDRA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "eco-ready.fullname" . }}-cassandra-superuser
+                  key: password
+          resources:
+            {{- toYaml .Values.consumers.cassandraWriter.resources | nindent 12 }}

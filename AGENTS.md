@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink) orchestrated via Docker Compose, designed for **two-node** HA deployment. Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. No application framework; pure infrastructure-as-code with utility scripts.
+ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose (two-node HA) and Kubernetes (Helm chart with Strimzi, K8ssandra, Flink Operator). Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. Pure infrastructure-as-code with utility scripts.
 
 ## STRUCTURE
 
@@ -39,6 +39,29 @@ centoo/
 │   ├── test_cassandra_writer.py
 │   ├── test_live_consumer.py
 │   └── test_cluster_id.py
+├── deploy/
+│   └── helm/
+│       └── eco-ready/              # Helm chart for Kubernetes deployment
+│           ├── Chart.yaml
+│           ├── values.yaml         # Default values (all configurable parameters)
+│           ├── values-staging.yaml
+│           ├── values-production.yaml
+│           └── templates/
+│               ├── _helpers.tpl
+│               ├── kafka/
+│               │   ├── kafka-cluster.yaml   # Strimzi Kafka CR (KRaft, NodePools, SASL)
+│               │   └── kafka-user.yaml      # Strimzi KafkaUser CR (SCRAM-SHA-512, ACLs)
+│               ├── cassandra/
+│               │   ├── k8ssandra-cluster.yaml  # K8ssandraCluster CR (auth, 2 nodes)
+│               │   └── superuser-secret.yaml   # Cassandra superuser credentials
+│               ├── flink/
+│               │   ├── flink-deployment.yaml   # FlinkDeployment CR (K8s-native HA)
+│               │   └── flink-pvc.yaml          # PVC for HA + checkpoints + savepoints
+│               ├── consumers/
+│               │   ├── cassandra-writer.yaml   # Deployment: kafka-to-cassandra
+│               │   └── live-consumer.yaml      # Deployment: kafka-live-consumer
+│               └── secrets/
+│                   └── kafka-credentials.yaml  # Kafka auth credentials
 ├── pyproject.toml              # ruff + mypy + pytest config
 ├── .pre-commit-config.yaml     # ruff + pre-commit hooks
 └── .github/workflows/ci.yml   # CI: lint → typecheck → test
@@ -59,6 +82,12 @@ centoo/
 | Add/run tests | `tests/` | `pytest tests/ -v` — uses importlib for module isolation |
 | Lint/format | `pyproject.toml` | `ruff check .` and `ruff format .` |
 | CI pipeline | `.github/workflows/ci.yml` | Runs on push/PR to main: lint → typecheck → test |
+| K8s deployment | `deploy/helm/eco-ready/` | `helm install eco-ready deploy/helm/eco-ready/` — requires Strimzi, K8ssandra, Flink operators |
+| K8s config overrides | `values-staging.yaml`, `values-production.yaml` | `helm install -f values-production.yaml` |
+| Kafka K8s config | `templates/kafka/` | Strimzi Kafka CR + KafkaUser CR with SCRAM-SHA-512 |
+| Cassandra K8s config | `templates/cassandra/` | K8ssandra CR + superuser secret |
+| Flink K8s config | `templates/flink/` | FlinkDeployment CR (K8s-native HA, no ZooKeeper) + PVC |
+| Consumer K8s config | `templates/consumers/` | Standard K8s Deployments with secret refs |
 
 ## CONVENTIONS
 
