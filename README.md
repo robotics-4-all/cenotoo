@@ -1,6 +1,6 @@
 # **ECO-READY Infrastructure**
 
-A distributed system setup consisting of Kafka, Cassandra, Flink, ksqlDB, and custom consumers, designed to run across **two nodes** for high availability and scalability.
+A distributed system setup consisting of Kafka, Cassandra, Flink, and custom consumers, designed to run across **two nodes** for high availability and scalability.
 
 ---
 
@@ -27,7 +27,6 @@ This system consists of:
    - Flink JobManager 1
    - Flink TaskManager 1
    - Zookeeper Node 1
-   - ksqlDB Server 1 
 
 2. **Node 2**:
    - Kafka Broker 2
@@ -35,9 +34,8 @@ This system consists of:
    - Flink JobManager 2
    - Flink TaskManager 2
    - Zookeeper Nodes 2 and 3
-   - ksqlDB Server 2
 
-Custom consumers (`kafka-to-cassandra` and `flink-to-cassandra`) can run on either or both nodes.
+Custom consumers (`kafka-to-cassandra` and `kafka-live-consumer`) can run on either or both nodes.
 
 ---
 
@@ -120,7 +118,7 @@ cd infrastructure
    ```
 3. Run the containers for Node 1:
    ```
-   docker-compose up -d kafka1 cassandra1 jobmanager1 taskmanager1 zoo1 ksqldb-server1
+    docker-compose up -d kafka1 cassandra1 jobmanager1 taskmanager1 zoo1
    ```
 
 ---
@@ -134,7 +132,7 @@ cd infrastructure
    ```
 3. Run the containers for Node 2:
    ```
-   docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3 ksqldb-server2
+    docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3
    ```
 
 ---
