@@ -16,6 +16,11 @@ spec:
     state.checkpoints.dir: file:///flink-data/checkpoints
     high-availability.type: kubernetes
     high-availability.storageDir: file:///flink-data/ha
+    {{- if and .Values.monitoring.enabled .Values.monitoring.flink.metricsEnabled }}
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: {{ .Values.monitoring.flink.metricsPortRange | quote }}
+    metrics.reporters: prom
+    {{- end }}
   jobManager:
     replicas: {{ .Values.flink.jobManager.replicas }}
     resource:

@@ -1,0 +1,75 @@
+{{- if and .Values.monitoring.enabled .Values.monitoring.alerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-alerts
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.alerts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: kafka.rules
+      rules:
+        - alert: KafkaUnderReplicatedPartitions
+          expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Kafka has under-replicated partitions
+            description: "Kafka broker {{ "{{" }} $labels.pod {{ "}}" }} has {{ "{{" }} $value {{ "}}" }} under-replicated partitions."
+        - alert: KafkaConsumerGroupLag
+          expr: kafka_consumergroup_lag_sum > 1000
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Kafka consumer group lag is high
+            description: "Consumer group {{ "{{" }} $labels.consumergroup {{ "}}" }} has a lag of {{ "{{" }} $value {{ "}}" }} on topic {{ "{{" }} $labels.topic {{ "}}" }}."
+        - alert: KafkaBrokerOffline
+          expr: count(kafka_server_kafkaserver_brokerstate) < {{ .Values.kafka.replicas }}
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Kafka broker is offline
+            description: "Expected {{ .Values.kafka.replicas }} brokers but only {{ "{{" }} $value {{ "}}" }} are online."
+    - name: cassandra.rules
+      rules:
+        - alert: CassandraNodeDown
+          expr: up{job=~".*cassandra.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Cassandra node is down
+            description: "Cassandra node {{ "{{" }} $labels.pod {{ "}}" }} is not reachable."
+    - name: flink.rules
+      rules:
+        - alert: FlinkJobManagerUnavailable
+          expr: absent(flink_jobmanager_Status_JVM_CPU_Load)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Flink JobManager is unavailable
+            description: "No Flink JobManager metrics are being received."
+        - alert: FlinkTaskManagerLost
+          expr: flink_jobmanager_numRegisteredTaskManagers < {{ .Values.flink.taskManager.replicas }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Flink TaskManagers are missing
+            description: "Expected {{ .Values.flink.taskManager.replicas }} TaskManagers but only {{ "{{" }} $value {{ "}}" }} are registered."
+        - alert: FlinkCheckpointFailures
+          expr: increase(flink_jobmanager_job_numberOfFailedCheckpoints[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Flink checkpoint failures detected
+            description: "Flink job {{ "{{" }} $labels.job_name {{ "}}" }} has failing checkpoints."
+{{- end }}

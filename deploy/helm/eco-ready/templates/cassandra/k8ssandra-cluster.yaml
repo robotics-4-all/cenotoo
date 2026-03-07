@@ -14,6 +14,11 @@ spec:
       cassandraYaml:
         authenticator: PasswordAuthenticator
         authorizer: CassandraAuthorizer
+    {{- if and .Values.monitoring.enabled .Values.monitoring.cassandra.metricsEnabled }}
+    telemetry:
+      mcac:
+        enabled: {{ .Values.monitoring.cassandra.mcacEnabled }}
+    {{- end }}
     datacenters:
       - metadata:
           name: {{ .Values.cassandra.datacenterName }}
