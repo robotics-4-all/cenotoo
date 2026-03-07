@@ -1,6 +1,6 @@
 import os
+
 from cassandra.cluster import Cluster
-from cassandra.auth import PlainTextAuthProvider
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -19,9 +19,9 @@ session = cluster.connect()
 
 # Creating the metadata keyspace
 session.execute("""
-    CREATE KEYSPACE IF NOT EXISTS metadata 
-    WITH REPLICATION = { 
-        'class' : 'SimpleStrategy', 
+    CREATE KEYSPACE IF NOT EXISTS metadata
+    WITH REPLICATION = {
+        'class' : 'SimpleStrategy',
         'replication_factor' : 2
     };
 """)

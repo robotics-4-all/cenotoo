@@ -1,13 +1,12 @@
+import json
+import logging
 import os
 import re
 import signal
-import sys
-import json
 import time
-import logging
 
-from confluent_kafka import Consumer, KafkaError, KafkaException
 from cassandra.cluster import Cluster
+from confluent_kafka import Consumer, KafkaError, KafkaException
 
 logging.basicConfig(
     level=logging.INFO,
@@ -106,7 +105,7 @@ def consume_and_store(topic_name, keyspace_name, table_name):
             message_data["key"] = msg.key().decode("utf-8") if msg.key() else None
 
             columns = []
-            for col_name in message_data.keys():
+            for col_name in message_data:
                 _validate_identifier(col_name)
                 columns.append(col_name)
 
@@ -114,7 +113,9 @@ def consume_and_store(topic_name, keyspace_name, table_name):
             if col_key not in prepared_cache:
                 col_str = ", ".join(columns)
                 placeholders = ", ".join(["%s"] * len(columns))
-                query = f"INSERT INTO {keyspace_name}.{table_name} ({col_str}) VALUES ({placeholders})"
+                query = (
+                    f"INSERT INTO {keyspace_name}.{table_name} ({col_str}) VALUES ({placeholders})"
+                )
                 prepared_cache[col_key] = session.prepare(query)
                 logger.info("Prepared new statement for columns: %s", columns)
 
