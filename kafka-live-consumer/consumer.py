@@ -1,6 +1,6 @@
+import logging
 import os
 import signal
-import logging
 
 from confluent_kafka import Consumer, KafkaError
 

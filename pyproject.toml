@@ -1,0 +1,57 @@
+[project]
+name = "ecoready-infra"
+version = "0.1.0"
+description = "ECO-READY distributed data streaming infrastructure"
+requires-python = ">=3.8"
+dependencies = [
+    "confluent-kafka",
+    "cassandra-driver",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-mock",
+]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "UP",
+    "B",
+    "A",
+    "C4",
+    "SIM",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"cassandra/create_cassandra_tables.py" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.8"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: unit tests",
+    "integration: integration tests (require running services)",
+]

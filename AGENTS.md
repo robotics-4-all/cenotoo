@@ -29,9 +29,17 @@ centoo/
 │   └── Dockerfile              # flink:1.18.1 + PyFlink 1.18.1 + SQL Kafka connector JAR
 ├── cassandra/
 │   └── create_cassandra_tables.py  # Schema init: metadata keyspace + 5 tables
-└── scripts/
-    ├── build-images.sh         # Builds 3 Docker images (flink, kafka-to-cassandra, kafka-live-consumer)
-    └── generate-cluster-id.py  # UUID→base64 Kafka cluster ID generator
+├── scripts/
+│   ├── build-images.sh         # Builds 3 Docker images (flink, kafka-to-cassandra, kafka-live-consumer)
+│   └── generate-cluster-id.py  # UUID→base64 Kafka cluster ID generator
+├── tests/                      # pytest test suite (21 tests)
+│   ├── conftest.py             # Shared mock fixtures (Kafka, Cassandra)
+│   ├── test_cassandra_writer.py
+│   ├── test_live_consumer.py
+│   └── test_cluster_id.py
+├── pyproject.toml              # ruff + mypy + pytest config
+├── .pre-commit-config.yaml     # ruff + pre-commit hooks
+└── .github/workflows/ci.yml   # CI: lint → typecheck → test
 ```
 
 ## WHERE TO LOOK
@@ -45,6 +53,9 @@ centoo/
 | Add new Docker image | `scripts/build-images.sh` | Add new build block + create `<service>/Dockerfile` |
 | Configure node IPs | `.env` (from `.env.example`) | Different per node; see README for Node 1 vs Node 2 examples |
 | Generate cluster ID | `scripts/generate-cluster-id.py` | Run once, copy ID to both nodes' `.env` |
+| Add/run tests | `tests/` | `pytest tests/ -v` — uses importlib for module isolation |
+| Lint/format | `pyproject.toml` | `ruff check .` and `ruff format .` |
+| CI pipeline | `.github/workflows/ci.yml` | Runs on push/PR to main: lint → typecheck → test |
 
 ## CONVENTIONS
 
@@ -53,14 +64,13 @@ centoo/
 - **Consumer group IDs**: `{topic}_cassandra_writer` (kafka-to-cassandra), `{project}.{collection}_live_group` (live consumer)
 - **Docker image tags**: hardcoded in `build-images.sh` — `custom-flink-image`, `kafka-cassandra-consumer`, `kafka-live-consumer`
 - **Environment-driven config**: All IPs, ports, credentials passed via env vars — never hardcoded
-- **Python style**: No packages/modules (`__init__.py`), no type hints — consumers use `logging` module, init script uses `print()`
+- **Python style**: No packages/modules, no type hints — consumers use `logging` module, init script uses `print()`
+- **Linting**: ruff (configured in `pyproject.toml`) — run `ruff check .` and `ruff format .`
+- **Testing**: pytest with `importlib`-based module loading (avoids `consumer.py` name collision between kafka-to-cassandra and kafka-live-consumer)
 - **Replication factor**: 2 everywhere (Kafka offsets, transactions, Cassandra keyspace)
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
-- **No tests** — zero test files, no test framework configured
-- **No CI/CD** — no GitHub Actions, GitLab CI, or similar
-- **No linter/formatter** — no `.eslintrc`, `pyproject.toml`, `.editorconfig`
 - **ksqlDB licensed under CCL** — cannot be included in a commercial product without Confluent agreement; planned for removal (replace with Flink SQL)
 
 ## COMMANDS
@@ -81,13 +91,16 @@ docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3 ksqldb
 # Init Cassandra schema (one node only, after Cassandra is healthy)
 pip install -r requirements.txt
 python cassandra/create_cassandra_tables.py
+
+# Dev: lint + test
+ruff check . && ruff format --check . && pytest tests/ -v
 ```
 
 ## NOTES
 
 - Two-node deployment: each node runs a subset of services. `.env` must be customized per node.
 - Kafka uses KRaft mode (no external ZooKeeper for Kafka itself) — ZooKeeper is only for Flink HA.
-- `docker-compose.yaml` uses `version: "3.5"` — deprecated in modern Docker Compose.
+- `docker-compose.yaml` uses modern format (no deprecated `version` field).
 - The `recovery` volume is a bind mount to `./recovery` — directory must exist before starting Flink.
 - Cassandra auth is now enabled (`PasswordAuthenticator`) — default creds `cassandra/cassandra`, must be changed after first boot.
 - Consumers now use structured logging, graceful SIGTERM shutdown, and validated CQL identifiers.
