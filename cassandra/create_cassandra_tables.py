@@ -11,19 +11,22 @@ CASSANDRA_SEEDS_ENV = os.getenv("CASSANDRA_SEEDS", "")
 if not CASSANDRA_SEEDS_ENV:
     raise RuntimeError("CASSANDRA_SEEDS environment variable is required")
 CASSANDRA_NODES = CASSANDRA_SEEDS_ENV.split(",")  # Comma-separated list of IPs
+CASSANDRA_DC = os.getenv("CASSANDRA_DC", "datacenter1")
+CASSANDRA_RF = int(os.getenv("CASSANDRA_RF", "2"))
 
 
 # Establish connection to the Cassandra cluster
 cluster = Cluster(CASSANDRA_NODES)
 session = cluster.connect()
 
-# Creating the metadata keyspace
-session.execute("""
+# Creating the metadata keyspace with NetworkTopologyStrategy
+# NTS is recommended even for single-DC deployments for future multi-DC expansion
+session.execute(f"""
     CREATE KEYSPACE IF NOT EXISTS metadata
-    WITH REPLICATION = {
-        'class' : 'SimpleStrategy',
-        'replication_factor' : 2
-    };
+    WITH REPLICATION = {{
+        'class' : 'NetworkTopologyStrategy',
+        '{CASSANDRA_DC}' : {CASSANDRA_RF}
+    }};
 """)
 
 # Switching to the metadata keyspace
