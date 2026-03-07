@@ -1,0 +1,84 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-controller
+  labels:
+    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.kafka.controller.replicas }}
+  roles:
+    - controller
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: {{ .Values.kafka.storage.size }}
+        {{- if .Values.kafka.storage.storageClassName }}
+        class: {{ .Values.kafka.storage.storageClassName }}
+        {{- end }}
+        deleteClaim: false
+  resources:
+    {{- toYaml .Values.kafka.controller.resources | nindent 4 }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-broker
+  labels:
+    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.kafka.replicas }}
+  roles:
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: {{ .Values.kafka.storage.size }}
+        {{- if .Values.kafka.storage.storageClassName }}
+        class: {{ .Values.kafka.storage.storageClassName }}
+        {{- end }}
+        deleteClaim: false
+  resources:
+    {{- toYaml .Values.kafka.broker.resources | nindent 4 }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-kafka
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: {{ .Values.kafka.version | quote }}
+    metadataVersion: {{ .Values.kafka.metadataVersion | quote }}
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: scram-sha-512
+    config:
+      offsets.topic.replication.factor: {{ .Values.kafka.config.offsetsTopicReplicationFactor }}
+      transaction.state.log.replication.factor: {{ .Values.kafka.config.transactionStateLogReplicationFactor }}
+      transaction.state.log.min.isr: {{ .Values.kafka.config.transactionStateLogMinIsr }}
+      default.replication.factor: {{ .Values.kafka.config.defaultReplicationFactor }}
+      min.insync.replicas: {{ .Values.kafka.config.minInsyncReplicas }}
+      inter.broker.protocol.version: {{ .Values.kafka.metadataVersion | quote }}
+    authorization:
+      type: simple
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}

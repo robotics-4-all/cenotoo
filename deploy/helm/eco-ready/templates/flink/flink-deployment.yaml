@@ -1,0 +1,50 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-flink
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  image: "{{ .Values.flink.image.repository }}:{{ .Values.flink.image.tag }}"
+  imagePullPolicy: {{ .Values.flink.image.pullPolicy }}
+  flinkVersion: v1_18
+  mode: native
+  serviceAccount: flink
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: {{ .Values.flink.taskManager.taskSlots | quote }}
+    state.savepoints.dir: file:///flink-data/savepoints
+    state.checkpoints.dir: file:///flink-data/checkpoints
+    high-availability.type: kubernetes
+    high-availability.storageDir: file:///flink-data/ha
+  jobManager:
+    replicas: {{ .Values.flink.jobManager.replicas }}
+    resource:
+      cpu: {{ .Values.flink.jobManager.cpu | quote }}
+      memory: {{ .Values.flink.jobManager.memory | quote }}
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - name: flink-data
+                mountPath: /flink-data
+        volumes:
+          - name: flink-data
+            persistentVolumeClaim:
+              claimName: {{ include "eco-ready.fullname" . }}-flink-data
+  taskManager:
+    replicas: {{ .Values.flink.taskManager.replicas }}
+    resource:
+      cpu: {{ .Values.flink.taskManager.cpu | quote }}
+      memory: {{ .Values.flink.taskManager.memory | quote }}
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - name: flink-data
+                mountPath: /flink-data
+        volumes:
+          - name: flink-data
+            persistentVolumeClaim:
+              claimName: {{ include "eco-ready.fullname" . }}-flink-data

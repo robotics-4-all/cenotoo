@@ -1,0 +1,34 @@
+apiVersion: k8ssandra.io/v1alpha1
+kind: K8ssandraCluster
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-cassandra
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  auth: true
+  cassandra:
+    serverVersion: {{ .Values.cassandra.version | quote }}
+    superuserSecretRef:
+      name: {{ include "eco-ready.fullname" . }}-cassandra-superuser
+    config:
+      cassandraYaml:
+        authenticator: PasswordAuthenticator
+        authorizer: CassandraAuthorizer
+    datacenters:
+      - metadata:
+          name: {{ .Values.cassandra.datacenterName }}
+        size: {{ .Values.cassandra.size }}
+        storageConfig:
+          cassandraDataVolumeClaimSpec:
+            {{- if .Values.cassandra.storage.storageClassName }}
+            storageClassName: {{ .Values.cassandra.storage.storageClassName }}
+            {{- end }}
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{ .Values.cassandra.storage.size }}
+        resources:
+          {{- toYaml .Values.cassandra.resources | nindent 10 }}
+    networking:
+      hostNetwork: false
