@@ -12,6 +12,9 @@ kafka:
       limits:
         memory: "8Gi"
         cpu: "4"
+  config:
+    logRetentionHours: 168
+    logRetentionBytes: 107374182400
 
 cassandra:
   size: 3
@@ -44,3 +47,14 @@ monitoring:
     enabled: true
   grafana:
     enabled: true
+
+backup:
+  medusa:
+    enabled: true
+    storageProperties:
+      storageProvider: s3_compatible
+      bucketName: eco-ready-backups
+      storageSecretRef:
+        name: medusa-bucket-key
+      prefix: production
+      maxBackupCount: 14

@@ -6,6 +6,16 @@ metadata:
     {{- include "eco-ready.labels" . | nindent 4 }}
 spec:
   auth: true
+  {{- if .Values.backup.medusa.enabled }}
+  medusa:
+    storageProperties:
+      storageProvider: {{ .Values.backup.medusa.storageProperties.storageProvider }}
+      bucketName: {{ .Values.backup.medusa.storageProperties.bucketName }}
+      storageSecretRef:
+        name: {{ .Values.backup.medusa.storageProperties.storageSecretRef.name }}
+      prefix: {{ .Values.backup.medusa.storageProperties.prefix }}
+      maxBackupCount: {{ .Values.backup.medusa.storageProperties.maxBackupCount }}
+  {{- end }}
   cassandra:
     serverVersion: {{ .Values.cassandra.version | quote }}
     superuserSecretRef:

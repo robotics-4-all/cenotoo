@@ -1,18 +1,18 @@
 # PROJECT KNOWLEDGE BASE
 
 **Generated:** 2026-03-07
-**Commit:** e5212ce
-**Branch:** main
+**Commit:** 07b0583
+**Branch:** devel
 
 ## OVERVIEW
 
-ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose (two-node HA) and Kubernetes (Helm chart with Strimzi, K8ssandra, Flink Operator). Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. Pure infrastructure-as-code with utility scripts.
+ECO-READY Infrastructure — distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose (dev, no ZooKeeper, simplified Flink) and Kubernetes (Helm chart with Strimzi, K8ssandra, Flink Operator, Prometheus/Grafana observability, Medusa backups). Python consumers bridge Kafka→Cassandra. Flink SQL prepared for future stream processing. Pure infrastructure-as-code with utility scripts.
 
 ## STRUCTURE
 
 ```
 centoo/
-├── docker-compose.yaml        # All services: kafka×2, cassandra×2, flink×4, zoo×3
+├── docker-compose.yaml        # All services: kafka×2, cassandra×2, flink×2 (no ZooKeeper)
 ├── .env.example                # Node-specific IPs (must cp to .env on each node)
 ├── requirements.txt            # Root deps: cassandra-driver, python-dotenv
 ├── kafka/
@@ -52,7 +52,7 @@ centoo/
 │               │   ├── kafka-cluster.yaml   # Strimzi Kafka CR (KRaft, NodePools, SASL)
 │               │   └── kafka-user.yaml      # Strimzi KafkaUser CR (SCRAM-SHA-512, ACLs)
 │               ├── cassandra/
-│               │   ├── k8ssandra-cluster.yaml  # K8ssandraCluster CR (auth, 2 nodes)
+│               │   ├── k8ssandra-cluster.yaml  # K8ssandraCluster CR (auth, 2 nodes, Medusa backup)
 │               │   └── superuser-secret.yaml   # Cassandra superuser credentials
 │               ├── flink/
 │               │   ├── flink-deployment.yaml   # FlinkDeployment CR (K8s-native HA)
@@ -76,7 +76,7 @@ centoo/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add/modify a service | `docker-compose.yaml` | All 12 services defined here |
+| Add/modify a service | `docker-compose.yaml` | 6 services: kafka×2, cassandra×2, flink JM+TM |
 | Add Flink SQL jobs | `flink/sql/` | Submit via `sql-client.sh -f`; no native Cassandra sink — use DataStream API |
 | Change Cassandra schema | `cassandra/create_cassandra_tables.py` | Run on ONE node only |
 | Modify Kafka auth | `kafka/kafka.jaas.conf` | Creds via `$KAFKA_USERNAME`, `$KAFKA_PASSWORD` env vars |
@@ -95,6 +95,7 @@ centoo/
 | Consumer K8s config | `templates/consumers/` | Standard K8s Deployments with secret refs |
 | K8s monitoring | `templates/monitoring/` | PodMonitors, PrometheusRules, Grafana dashboards, Kafka metrics ConfigMap |
 | Monitoring config | `values.yaml` → `monitoring:` | Toggle metrics, alerts, dashboards per component |
+| Backup config | `values.yaml` → `backup:` | Medusa backup for Cassandra (disabled by default) |
 
 ## CONVENTIONS
 
@@ -107,6 +108,7 @@ centoo/
 - **Linting**: ruff (configured in `pyproject.toml`) — run `ruff check .` and `ruff format .`
 - **Testing**: pytest with `importlib`-based module loading (avoids `consumer.py` name collision between kafka-to-cassandra and kafka-live-consumer)
 - **Replication factor**: 2 everywhere (Kafka offsets, transactions, Cassandra keyspace)
+- **Cassandra replication**: NetworkTopologyStrategy (configurable via `CASSANDRA_DC` and `CASSANDRA_RF` env vars)
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
@@ -122,10 +124,10 @@ python scripts/generate-cluster-id.py
 bash scripts/build-images.sh
 
 # Node 1: start services
-docker-compose up -d kafka1 cassandra1 jobmanager1 taskmanager1 zoo1
+docker-compose up -d kafka1 cassandra1 jobmanager taskmanager
 
 # Node 2: start services
-docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3
+docker-compose up -d kafka2 cassandra2
 
 # Init Cassandra schema (one node only, after Cassandra is healthy)
 pip install -r requirements.txt
@@ -138,9 +140,10 @@ ruff check . && ruff format --check . && pytest tests/ -v
 ## NOTES
 
 - Two-node deployment: each node runs a subset of services. `.env` must be customized per node.
-- Kafka uses KRaft mode (no external ZooKeeper for Kafka itself) — ZooKeeper is only for Flink HA.
+- Kafka uses KRaft mode — no ZooKeeper dependency anywhere in the stack.
 - `docker-compose.yaml` uses modern format (no deprecated `version` field).
-- The `recovery` volume is a bind mount to `./recovery` — directory must exist before starting Flink.
+- Docker Compose Flink runs single JobManager (no HA) — production uses K8s-native HA.
+- All Docker Compose services include health checks with `depends_on` conditions.
 - Cassandra auth is now enabled (`PasswordAuthenticator`) — default creds `cassandra/cassandra`, must be changed after first boot.
 - Consumers now use structured logging, graceful SIGTERM shutdown, and validated CQL identifiers.
 - `kafka-to-cassandra` uses manual offset commits — only commits after successful Cassandra write.

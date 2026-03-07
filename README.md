@@ -1,171 +1,166 @@
 # **ECO-READY Infrastructure**
 
-A distributed system setup consisting of Kafka, Cassandra, Flink, and custom consumers, designed to run across **two nodes** for high availability and scalability.
+A distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose for development and Kubernetes (Helm) for production.
 
 ---
 
 ## **Table of Contents**
 1. [System Architecture](#system-architecture)
 2. [Prerequisites](#prerequisites)
-3. [Cloning the Repository](#cloning-the-repository)
-4. [Environment Configuration](#environment-configuration)
-5. [Deployment Instructions](#deployment-instructions)
-   - [Generate Kafka Cluster ID](#generate-kafka-cluster-id)
-   - [Node 1 Setup](#node-1-setup)
-   - [Node 2 Setup](#node-2-setup)
-6. [Initializing Cassandra](#initializing-cassandra)
+3. [Quick Start (Docker Compose)](#quick-start-docker-compose)
+4. [Kubernetes Deployment](#kubernetes-deployment)
+5. [Initializing Cassandra](#initializing-cassandra)
+6. [Development](#development)
 7. [Additional Notes](#additional-notes)
 
 ---
 
 ## **System Architecture**
 
-This system consists of:
-1. **Node 1**:
-   - Kafka Broker 1
-   - Cassandra Node 1
-   - Flink JobManager 1
-   - Flink TaskManager 1
-   - Zookeeper Node 1
+### Docker Compose (Development)
 
-2. **Node 2**:
-   - Kafka Broker 2
-   - Cassandra Node 2
-   - Flink JobManager 2
-   - Flink TaskManager 2
-   - Zookeeper Nodes 2 and 3
+- Kafka Broker 1 + Broker 2 (KRaft mode, no ZooKeeper)
+- Cassandra Node 1 + Node 2 (PasswordAuthenticator)
+- Flink JobManager + TaskManager (single instance, no HA)
+- Custom consumers: `kafka-to-cassandra`, `kafka-live-consumer`
 
-Custom consumers (`kafka-to-cassandra` and `kafka-live-consumer`) can run on either or both nodes.
+All services include health checks. Cassandra 2 waits for Cassandra 1, TaskManager waits for JobManager.
+
+### Kubernetes (Production)
+
+Deployed via Helm chart (`deploy/helm/eco-ready/`) using:
+- **Strimzi** for Kafka (KRaft, SCRAM-SHA-512, KafkaNodePools)
+- **K8ssandra** for Cassandra (PasswordAuthenticator, optional Medusa backups)
+- **Flink Operator** for Flink (K8s-native HA, checkpoints, savepoints)
+- **Prometheus + Grafana** for observability (PodMonitors, alerting rules, dashboards)
 
 ---
 
 ## **Prerequisites**
 
-Ensure the following are installed on **both nodes**:
+### Docker Compose
 - **Docker** (>= 20.10)
 - **Docker Compose** (>= 1.29)
-- **Python** (>= 3.8)
-- **pip** (for Python dependencies)
+- **Python** (>= 3.8) — for Cassandra schema init
+
+### Kubernetes
+- **kubectl** + cluster access
+- **Helm** (>= 3.x)
+- Pre-installed operators: Strimzi, K8ssandra (with cert-manager), Flink Operator
+- Optional: kube-prometheus-stack (for monitoring)
 
 ---
 
-## **Cloning the Repository**
+## **Quick Start (Docker Compose)**
 
-On **both nodes**, clone the GitHub repository:
-```
-git clone https://github.com/AuthEceSoftEng/ecoready-observatory.git
-cd infrastructure
-```
-
----
-
-## **Environment Configuration**
-
-1. **Create `.env` File**:
-   - On both nodes, copy the example environment file:
-     ```
-     cp .env.example .env
-     ```
-   - Update the variables specific to each node.
-
-2. **Example `.env` for Node 1**:
-   ```
-   KAFKA_BROKER1_IP=192.168.1.101
-   KAFKA_BROKER2_IP=192.168.1.102
-   CASSANDRA_SEEDS=192.168.1.101,192.168.1.102
-   CASSANDRA_BROADCAST_ADDRESS1=192.168.1.101
-   ZOOKEEPER1_IP=192.168.1.101
-   JOBMANAGER1_IP=192.168.1.201
-   TASKMANAGER1_IP=192.168.1.202
+1. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your node IPs
    ```
 
-3. **Example `.env` for Node 2**:
-   ```
-   KAFKA_BROKER1_IP=192.168.1.101
-   KAFKA_BROKER2_IP=192.168.1.102
-   CASSANDRA_SEEDS=192.168.1.101,192.168.1.102
-   CASSANDRA_BROADCAST_ADDRESS2=192.168.1.102
-   ZOOKEEPER2_IP=192.168.1.102
-   ZOOKEEPER3_IP=192.168.1.103
-   JOBMANAGER2_IP=192.168.2.201
-   TASKMANAGER2_IP=192.168.2.202
-   ```
-
----
-
-## **Deployment Instructions**
-
-### **Generate Kafka Cluster ID**
-
-1. On one of the nodes, run the provided script to generate the Kafka Cluster ID:
-   ```
+2. **Generate Kafka Cluster ID** (once):
+   ```bash
    python scripts/generate-cluster-id.py
+   # Copy the output to KAFKA_CLUSTER_ID in .env
    ```
 
-2. Copy the generated Cluster ID and update the `.env` file on **both nodes**:
+3. **Build custom Docker images**:
+   ```bash
+   bash scripts/build-images.sh
    ```
-   KAFKA_CLUSTER_ID=<generated-cluster-id>
+
+4. **Start all services**:
+   ```bash
+   # Node 1
+   docker-compose up -d kafka1 cassandra1 jobmanager taskmanager
+
+   # Node 2
+   docker-compose up -d kafka2 cassandra2
    ```
+
+5. **Initialize Cassandra schema** (after Cassandra is healthy):
+   ```bash
+   pip install -r requirements.txt
+   python cassandra/create_cassandra_tables.py
+   ```
+
+6. **Verify health**:
+   ```bash
+   docker ps    # All containers should show (healthy)
+   ```
+
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `KAFKA_BROKER1_IP` | Kafka broker 1 IP | `192.168.1.101` |
+| `KAFKA_BROKER2_IP` | Kafka broker 2 IP | `192.168.1.102` |
+| `KAFKA_CLUSTER_ID` | Generated cluster ID | (from generate script) |
+| `KAFKA_USERNAME` | Kafka SASL username | `admin` |
+| `KAFKA_PASSWORD` | Kafka SASL password | (change from default) |
+| `CASSANDRA_SEEDS` | Comma-separated Cassandra IPs | `192.168.1.101,192.168.1.102` |
+| `CASSANDRA_BROADCAST_ADDRESS1` | Cassandra node 1 broadcast IP | `192.168.1.101` |
+| `CASSANDRA_BROADCAST_ADDRESS2` | Cassandra node 2 broadcast IP | `192.168.1.102` |
 
 ---
 
-### **Node 1 Setup**
+## **Kubernetes Deployment**
 
-1. Navigate to the project directory on Node 1.
-2. Build the Docker images:
-   ```
-   bash scripts/build-images.sh
-   ```
-3. Run the containers for Node 1:
-   ```
-    docker-compose up -d kafka1 cassandra1 jobmanager1 taskmanager1 zoo1
-   ```
+```bash
+# Default values
+helm install eco-ready deploy/helm/eco-ready/
 
----
+# Production overrides
+helm install eco-ready deploy/helm/eco-ready/ -f deploy/helm/eco-ready/values-production.yaml
 
-### **Node 2 Setup**
+# Staging overrides
+helm install eco-ready deploy/helm/eco-ready/ -f deploy/helm/eco-ready/values-staging.yaml
+```
 
-1. Navigate to the project directory on Node 2.
-2. Build the Docker images:
-   ```
-   bash scripts/build-images.sh
-   ```
-3. Run the containers for Node 2:
-   ```
-    docker-compose up -d kafka2 cassandra2 jobmanager2 taskmanager2 zoo2 zoo3
-   ```
+See `values.yaml` for all configurable parameters including monitoring, backup, and resource limits.
 
 ---
 
 ## **Initializing Cassandra**
 
-1. Install Cassandra dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
-2. Run the Cassandra initialization script on **one node only**:
-   ```
-   python cassandra/create_cassandra_tables.py
-   ```
+The schema uses `NetworkTopologyStrategy` (recommended even for single-DC deployments):
+
+```bash
+pip install -r requirements.txt
+
+# Optional: configure datacenter name and replication factor
+export CASSANDRA_DC=datacenter1   # default
+export CASSANDRA_RF=2             # default
+
+python cassandra/create_cassandra_tables.py
+```
 
 ---
 
+## **Development**
 
+```bash
+# Lint and format check
+ruff check . && ruff format --check .
+
+# Run tests
+pytest tests/ -v
+
+# Full CI check (lint + typecheck + test)
+ruff check . && ruff format --check . && pytest tests/ -v
+```
+
+---
 
 ## **Additional Notes**
 
-1. **Ensure Synchronization**:
-   - The `.env` files on both nodes must be consistent except for node-specific variables like IP addresses.
+1. **Kafka uses KRaft mode** — no ZooKeeper dependency. Cluster ID must be generated once and shared across all brokers.
 
-2. **Verify Container Health**:
-   - Check the status of all containers:
-     ```
-     docker ps
-     ```
+2. **Cassandra auth is enabled** — default credentials are `cassandra/cassandra`. Change after first boot.
 
-3. **Logs and Debugging**:
-   - Use the following command to view logs for a container:
-     ```
-     docker logs <container-name>
-     ```
+3. **Flink in Docker Compose has no HA** — single JobManager for dev/test. Production uses K8s-native HA via the Flink Operator.
 
+4. **Health checks** — all Docker Compose services include health checks. Use `docker ps` to verify all are `(healthy)`.
+
+5. **Consumers** — `kafka-to-cassandra` bridges Kafka topics to Cassandra tables. `kafka-live-consumer` streams messages to stdout for debugging.

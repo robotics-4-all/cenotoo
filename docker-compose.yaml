@@ -25,6 +25,12 @@ services:
       KAFKA_SUPER_USERS: User:Admin
     volumes:
       - ./kafka/kafka.jaas.conf:/etc/kafka/configs/kafka_server_jaas.conf
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:19092 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # Kafka broker on the second node
   kafka2:
@@ -44,6 +50,12 @@ services:
       KAFKA_SUPER_USERS: User:Admin
     volumes:
       - ./kafka/kafka.jaas.conf:/etc/kafka/configs/kafka_server_jaas.conf
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:19093 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # Cassandra instance on the first node
   cassandra1:
@@ -62,12 +74,21 @@ services:
       CASSANDRA_AUTHORIZER: CassandraAuthorizer
     volumes:
       - ./cassandra1_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # Cassandra instance on the second node
   cassandra2:
     image: cassandra:4.1.0
     container_name: cassandra2
     restart: always
+    depends_on:
+      cassandra1:
+        condition: service_healthy
     ports:
       - '9142:9042'  # Default Cassandra CQL port for second node
       - '7100:7000'  # Inter-node communication for second node
@@ -80,147 +101,56 @@ services:
       CASSANDRA_AUTHORIZER: CassandraAuthorizer
     volumes:
       - ./cassandra2_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
-  # Flink JobManager for the first node
-  jobmanager1:
-    image: custom-flink-image  # Custom Flink image to be built
-    container_name: jobmanager1
+  # Flink JobManager
+  jobmanager:
+    image: custom-flink-image
+    container_name: jobmanager
     restart: always
     ports:
-      - "8081:8081"  # REST API
-      - "46987:46987"  # RPC port
-      - "6124:6124"  # Blob server port
-      - "41435:41435"  # Metrics query service port
+      - "8081:8081"
     command: jobmanager
     environment:
       - |
         FLINK_PROPERTIES=
-        high-availability.type: zookeeper
-        high-availability.storageDir: /opt/flink/recovery
-        high-availability.zookeeper.quorum: ${ZOOKEEPER1_IP}:2181,${ZOOKEEPER2_IP}:2181,${ZOOKEEPER3_IP}:2182
-        high-availability.zookeeper.path.root: /flink
-        high-availability.cluster-id: /cluster
-        jobmanager.rpc.address: ${JOBMANAGER1_IP}
-        jobmanager.rpc.port: 6123
-        blob.server.port: 6124
-        rest.address: ${JOBMANAGER1_IP}
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+        state.savepoints.dir: file:///opt/flink/savepoints
     volumes:
-      - recovery:/opt/flink/recovery
+      - flink-data:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/overview || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
-  # Flink TaskManager for the first node
-  taskmanager1:
+  # Flink TaskManager
+  taskmanager:
     image: custom-flink-image
-    container_name: taskmanager1
+    container_name: taskmanager
     restart: always
     depends_on:
-      - jobmanager1
+      jobmanager:
+        condition: service_healthy
     command: taskmanager
-    ports:
-      - "50101:50101"  # Data port
-      - "46989:46989"  # RPC port
     environment:
       - |
         FLINK_PROPERTIES=
-        high-availability.type: zookeeper
-        high-availability.storageDir: /opt/flink/recovery
-        high-availability.zookeeper.quorum: ${ZOOKEEPER1_IP}:2181,${ZOOKEEPER2_IP}:2181,${ZOOKEEPER3_IP}:2182
-        jobmanager.rpc.address: ${JOBMANAGER1_IP}
-        taskmanager.host: ${TASKMANAGER1_IP}
+        jobmanager.rpc.address: jobmanager
         taskmanager.numberOfTaskSlots: 8
     volumes:
-      - recovery:/opt/flink/recovery
-
-  # Flink JobManager for the second node
-  jobmanager2:
-    image: custom-flink-image  # Custom Flink image to be built
-    container_name: jobmanager2
-    restart: always
-    ports:
-      - "8082:8081"  # REST API
-      - "46988:46987"  # RPC port
-      - "6125:6124"  # Blob server port
-      - "41436:41435"  # Metrics query service port
-    command: jobmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        high-availability.type: zookeeper
-        high-availability.storageDir: /opt/flink/recovery
-        high-availability.zookeeper.quorum: ${ZOOKEEPER1_IP}:2181,${ZOOKEEPER2_IP}:2181,${ZOOKEEPER3_IP}:2182
-        high-availability.zookeeper.path.root: /flink
-        high-availability.cluster-id: /cluster
-        jobmanager.rpc.address: ${JOBMANAGER2_IP}
-        jobmanager.rpc.port: 6123
-        blob.server.port: 6124
-        rest.address: ${JOBMANAGER2_IP}
-    volumes:
-      - recovery:/opt/flink/recovery
-
-  # Flink TaskManager for the second node
-  taskmanager2:
-    image: custom-flink-image
-    container_name: taskmanager2
-    restart: always
-    depends_on:
-      - jobmanager2
-    command: taskmanager
-    ports:
-      - "50102:50101"  # Data port
-      - "46990:46989"  # RPC port
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        high-availability.type: zookeeper
-        high-availability.storageDir: /opt/flink/recovery
-        high-availability.zookeeper.quorum: ${ZOOKEEPER1_IP}:2181,${ZOOKEEPER2_IP}:2181,${ZOOKEEPER3_IP}:2182
-        jobmanager.rpc.address: ${JOBMANAGER2_IP}
-        taskmanager.host: ${TASKMANAGER2_IP}
-        taskmanager.numberOfTaskSlots: 8
-    volumes:
-      - recovery:/opt/flink/recovery
-  
-  zoo1:
-    image: zookeeper
-    restart: always
-    hostname: zoo1
-    ports:
-      - 2181:2181
-      - 2888:2888
-      - 3888:3888
-    environment:
-      ZOO_MY_ID: 1
-      ZOO_SERVERS: server.1=0.0.0.0:2888:3888;2181 server.2=${ZOOKEEPER2_IP}:2888:3888;2181 server.3=${ZOOKEEPER3_IP}:2889:3889;2182
-
-  # Zookeeper Node 2
-  zoo2:
-    image: zookeeper
-    restart: always
-    hostname: zoo2
-    ports:
-      - 2181:2181
-      - 2888:2888
-      - 3888:3888
-    environment:
-      ZOO_MY_ID: 2
-      ZOO_SERVERS: server.1=${ZOOKEEPER1_IP}:2888:3888;2181 server.2=0.0.0.0:2888:3888;2181 server.3=${ZOOKEEPER3_IP}:2889:3889;2182
-
-  # Zookeeper Node 3
-  zoo3:
-    image: zookeeper
-    restart: always
-    hostname: zoo3
-    ports:
-      - 2182:2181
-      - 2889:2888
-      - 3889:3888
-    environment:
-      ZOO_MY_ID: 3
-      ZOO_SERVERS: server.1=${ZOOKEEPER1_IP}:2888:3888;2181 server.2=${ZOOKEEPER2_IP}:2888:3888;2181 server.3=0.0.0.0:2889:3889;2182
+      - flink-data:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
 
 volumes:
-  recovery:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./recovery
+  flink-data: {}
+  flink-savepoints: {}
