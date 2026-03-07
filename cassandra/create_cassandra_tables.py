@@ -7,11 +7,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Environment Variables
-CASSANDRA_NODES = os.getenv("CASSANDRA_SEEDS").split(",")  # Comma-separated list of IPs
+CASSANDRA_SEEDS_ENV = os.getenv("CASSANDRA_SEEDS", "")
+if not CASSANDRA_SEEDS_ENV:
+    raise RuntimeError("CASSANDRA_SEEDS environment variable is required")
+CASSANDRA_NODES = CASSANDRA_SEEDS_ENV.split(",")  # Comma-separated list of IPs
 
 
 # Establish connection to the Cassandra cluster
-cluster = Cluster([CASSANDRA_NODES])
+cluster = Cluster(CASSANDRA_NODES)
 session = cluster.connect()
 
 # Creating the metadata keyspace
@@ -24,7 +27,7 @@ session.execute("""
 """)
 
 # Switching to the metadata keyspace
-session.set_keyspace('metadata')
+session.set_keyspace("metadata")
 
 # Creating the User table
 session.execute("""
