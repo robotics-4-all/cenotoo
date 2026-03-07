@@ -1,0 +1,59 @@
+{{- if .Values.monitoring.enabled }}
+{{- if .Values.monitoring.kafka.metricsEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-kafka
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+      strimzi.io/kind: Kafka
+  podMetricsEndpoints:
+    - path: /metrics
+      port: tcp-prometheus
+      interval: {{ .Values.monitoring.scrapeInterval }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_strimzi_io_name]
+          targetLabel: kafka_resource
+{{- end }}
+---
+{{- if .Values.monitoring.kafka.kafkaExporterEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-kafka-exporter
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ include "eco-ready.fullname" . }}-kafka
+      strimzi.io/kind: KafkaExporter  
+  podMetricsEndpoints:
+    - path: /metrics
+      port: tcp-prometheus
+      interval: {{ .Values.monitoring.scrapeInterval }}
+{{- end }}
+---
+{{- if .Values.monitoring.flink.metricsEnabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "eco-ready.fullname" . }}-flink
+  labels:
+    {{- include "eco-ready.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ include "eco-ready.fullname" . }}-flink
+      type: flink-native-kubernetes
+  podMetricsEndpoints:
+    - port: prom
+      interval: {{ .Values.monitoring.scrapeInterval }}
+{{- end }}
+{{- end }}

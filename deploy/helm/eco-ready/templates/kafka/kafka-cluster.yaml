@@ -79,6 +79,19 @@ spec:
       inter.broker.protocol.version: {{ .Values.kafka.metadataVersion | quote }}
     authorization:
       type: simple
+    {{- if and .Values.monitoring.enabled .Values.monitoring.kafka.metricsEnabled }}
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: {{ include "eco-ready.fullname" . }}-kafka-metrics
+          key: kafka-metrics-config.yml
+    {{- end }}
   entityOperator:
     topicOperator: {}
     userOperator: {}
+  {{- if and .Values.monitoring.enabled .Values.monitoring.kafka.kafkaExporterEnabled }}
+  kafkaExporter:
+    topicRegex: {{ .Values.monitoring.kafka.topicRegex | quote }}
+    groupRegex: {{ .Values.monitoring.kafka.groupRegex | quote }}
+  {{- end }}

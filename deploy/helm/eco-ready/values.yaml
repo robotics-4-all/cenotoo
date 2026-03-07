@@ -100,3 +100,50 @@ consumers:
       limits:
         cpu: "500m"
         memory: "256Mi"
+
+# -- Monitoring and observability configuration
+# Requires kube-prometheus-stack (Prometheus Operator) installed in the cluster
+monitoring:
+  # -- Enable/disable all monitoring resources (PodMonitors, PrometheusRules, dashboards)
+  enabled: true
+
+  # -- Prometheus scrape interval for all monitors
+  scrapeInterval: 30s
+
+  kafka:
+    # -- Enable Kafka JMX metrics via Strimzi metricsConfig
+    metricsEnabled: true
+    # -- Enable Strimzi KafkaExporter for consumer group lag metrics
+    kafkaExporterEnabled: true
+    # -- Topic regex for KafkaExporter
+    topicRegex: ".*"
+    # -- Consumer group regex for KafkaExporter
+    groupRegex: ".*"
+
+  cassandra:
+    # -- Enable Cassandra metrics endpoint (Management API, port 9103)
+    metricsEnabled: true
+    # -- Disable legacy MCAC (deprecated, replaced by Management API endpoint)
+    mcacEnabled: false
+
+  flink:
+    # -- Enable Flink Prometheus metrics reporter
+    metricsEnabled: true
+    # -- Port range for Prometheus reporter
+    metricsPortRange: "9249-9250"
+
+  # -- Alerting rules configuration
+  alerts:
+    # -- Enable PrometheusRule resources
+    enabled: true
+    # -- Labels to add to PrometheusRule resources (for Prometheus Operator discovery)
+    labels: {}
+
+  # -- Grafana dashboard configuration
+  grafana:
+    # -- Enable Grafana dashboard ConfigMaps
+    enabled: true
+    # -- Label for Grafana sidecar dashboard discovery
+    sidecarLabel: grafana_dashboard
+    # -- Label value for Grafana sidecar dashboard discovery
+    sidecarLabelValue: "1"

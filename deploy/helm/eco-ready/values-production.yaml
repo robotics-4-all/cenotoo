@@ -36,3 +36,11 @@ flink:
     taskSlots: 8
   storage:
     size: 20Gi
+
+monitoring:
+  enabled: true
+  scrapeInterval: 15s
+  alerts:
+    enabled: true
+  grafana:
+    enabled: true

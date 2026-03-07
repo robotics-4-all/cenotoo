@@ -32,3 +32,11 @@ flink:
   taskManager:
     replicas: 1
     taskSlots: 2
+
+monitoring:
+  enabled: true
+  scrapeInterval: 60s
+  alerts:
+    enabled: false
+  grafana:
+    enabled: false

@@ -60,6 +60,11 @@ centoo/
 │               ├── consumers/
 │               │   ├── cassandra-writer.yaml   # Deployment: kafka-to-cassandra
 │               │   └── live-consumer.yaml      # Deployment: kafka-live-consumer
+│               ├── monitoring/
+│               │   ├── kafka-metrics-configmap.yaml  # JMX Prometheus Exporter rules for Kafka
+│               │   ├── pod-monitors.yaml             # PodMonitors: Kafka, KafkaExporter, Flink
+│               │   ├── prometheus-rules.yaml          # PrometheusRule: alerting rules
+│               │   └── grafana-dashboards-configmap.yaml  # Grafana overview dashboard
 │               └── secrets/
 │                   └── kafka-credentials.yaml  # Kafka auth credentials
 ├── pyproject.toml              # ruff + mypy + pytest config
@@ -88,6 +93,8 @@ centoo/
 | Cassandra K8s config | `templates/cassandra/` | K8ssandra CR + superuser secret |
 | Flink K8s config | `templates/flink/` | FlinkDeployment CR (K8s-native HA, no ZooKeeper) + PVC |
 | Consumer K8s config | `templates/consumers/` | Standard K8s Deployments with secret refs |
+| K8s monitoring | `templates/monitoring/` | PodMonitors, PrometheusRules, Grafana dashboards, Kafka metrics ConfigMap |
+| Monitoring config | `values.yaml` → `monitoring:` | Toggle metrics, alerts, dashboards per component |
 
 ## CONVENTIONS
 
