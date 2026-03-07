@@ -45,6 +45,21 @@ for crd in "${REQUIRED_CRDS[@]}"; do
     fi
 done
 
+REQUIRED_IMAGES=("kafka-cassandra-consumer" "kafka-live-consumer" "custom-flink-image")
+images_missing=false
+for img in "${REQUIRED_IMAGES[@]}"; do
+    if sudo k3s ctr images list 2>/dev/null | grep -q "$img"; then
+        ok "Image found in k3s: $img"
+    else
+        warn "Image not found in k3s: $img"
+        images_missing=true
+    fi
+done
+if [ "$images_missing" = "true" ]; then
+    warn "Consumer/Flink pods will fail with ErrImagePull"
+    warn "Run: ./scripts/build-images.sh --k3s"
+fi
+
 # Check monitoring (warn if missing)
 if kubectl get crd prometheusrules.monitoring.coreos.com &>/dev/null; then
     ok "Prometheus Operator CRDs found (monitoring will be enabled)"

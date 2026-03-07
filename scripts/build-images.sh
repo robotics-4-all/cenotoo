@@ -1,26 +1,57 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# =============================================================================
+# build-images.sh — Build Cenotoo Docker images and load into k3s
+#
+# Usage:  ./scripts/build-images.sh          # Docker build only
+#         ./scripts/build-images.sh --k3s    # Build + import into k3s containerd
+# =============================================================================
+set -euo pipefail
 
-# Set project image tags
-FLINK_IMAGE_TAG="custom-flink-image"
-KAFKA_TO_CASSANDRA_IMAGE_TAG="kafka-cassandra-consumer"
-KAFKA_LIVE_IMAGE_TAG="kafka-live-consumer"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Build Flink image
-echo "Building custom Flink Docker image..."
-cd ./flink || exit
-docker build -t $FLINK_IMAGE_TAG .
-cd - || exit
+FLINK_IMAGE="custom-flink-image:latest"
+CASSANDRA_WRITER_IMAGE="kafka-cassandra-consumer:latest"
+LIVE_CONSUMER_IMAGE="kafka-live-consumer:latest"
 
-# Build Kafka-to-Cassandra consumer image
-echo "Building Kafka-to-Cassandra consumer Docker image..."
-cd ./kafka-to-cassandra || exit
-docker build -t $KAFKA_TO_CASSANDRA_IMAGE_TAG .
-cd - || exit
+LOAD_K3S=false
+if [ "${1:-}" = "--k3s" ]; then
+    LOAD_K3S=true
+fi
 
-# Build Flink-to-Cassandra consumer image
-echo "Building Kafka lice consumer Docker image..."
-cd ./kafka-live-consumer || exit
-docker build -t $KAFKA_LIVE_IMAGE_TAG .
-cd - || exit
+info()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
+ok()    { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
+fail()  { printf '\033[1;31m[FAIL]\033[0m  %s\n' "$*"; exit 1; }
 
-echo "All custom Docker images built successfully!"
+build_and_load() {
+    local context="$1" image="$2"
+
+    info "Building $image from $context ..."
+    docker build -t "$image" "$context"
+    ok "Built $image"
+
+    if [ "$LOAD_K3S" = "true" ]; then
+        info "Importing $image into k3s containerd ..."
+        docker save "$image" | sudo k3s ctr images import -
+        ok "Imported $image into k3s"
+    fi
+}
+
+if ! command -v docker &>/dev/null; then
+    fail "Docker is required. Install Docker first."
+fi
+
+if [ "$LOAD_K3S" = "true" ] && ! command -v k3s &>/dev/null; then
+    fail "--k3s flag set but k3s is not installed"
+fi
+
+build_and_load "$PROJECT_DIR/flink" "$FLINK_IMAGE"
+build_and_load "$PROJECT_DIR/kafka-to-cassandra" "$CASSANDRA_WRITER_IMAGE"
+build_and_load "$PROJECT_DIR/kafka-live-consumer" "$LIVE_CONSUMER_IMAGE"
+
+echo ""
+ok "All images built successfully"
+if [ "$LOAD_K3S" = "true" ]; then
+    ok "All images imported into k3s containerd"
+    info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live'"
+fi
