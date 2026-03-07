@@ -72,6 +72,7 @@ if helm status k8ssandra-operator -n "$NAMESPACE" &>/dev/null; then
     helm upgrade k8ssandra-operator k8ssandra/k8ssandra-operator \
         --namespace "$NAMESPACE" \
         --version "$K8SSANDRA_VERSION" \
+        --set global.clusterScoped=true \
         --wait
 else
     info "Installing K8ssandra operator $K8SSANDRA_VERSION ..."
@@ -79,6 +80,7 @@ else
         --namespace "$NAMESPACE" \
         --create-namespace \
         --version "$K8SSANDRA_VERSION" \
+        --set global.clusterScoped=true \
         --wait
 fi
 
