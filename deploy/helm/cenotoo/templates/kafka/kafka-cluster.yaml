@@ -1,4 +1,4 @@
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: {{ include "cenotoo.fullname" . }}-controller
@@ -22,7 +22,7 @@ spec:
   resources:
     {{- toYaml .Values.kafka.controller.resources | nindent 4 }}
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: {{ include "cenotoo.fullname" . }}-broker
@@ -46,7 +46,7 @@ spec:
   resources:
     {{- toYaml .Values.kafka.broker.resources | nindent 4 }}
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: {{ include "cenotoo.fullname" . }}-kafka
@@ -78,7 +78,6 @@ spec:
       min.insync.replicas: {{ .Values.kafka.config.minInsyncReplicas }}
       log.retention.hours: {{ .Values.kafka.config.logRetentionHours }}
       log.retention.bytes: {{ int64 .Values.kafka.config.logRetentionBytes }}
-      inter.broker.protocol.version: {{ .Values.kafka.metadataVersion | quote }}
     authorization:
       type: simple
     {{- if and .Values.monitoring.enabled .Values.monitoring.kafka.metricsEnabled }}
