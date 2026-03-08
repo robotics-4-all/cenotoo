@@ -34,6 +34,10 @@ spec:
       - metadata:
           name: {{ .Values.cassandra.datacenterName }}
         size: {{ .Values.cassandra.size }}
+        config:
+          jvmOptions:
+            heap_initial_size: {{ .Values.cassandra.heap.size }}
+            heap_max_size: {{ .Values.cassandra.heap.size }}
         storageConfig:
           cassandraDataVolumeClaimSpec:
             {{- if .Values.cassandra.storage.storageClassName }}
