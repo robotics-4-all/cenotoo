@@ -31,17 +31,6 @@ spec:
               value: "production"
             - name: KAFKA_BROKERS
               value: cenotoo-kafka-kafka-bootstrap:9092
-            - name: KAFKA_USERNAME
-              value: "cenotoo-consumer"
-            - name: KAFKA_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-consumer
-                  key: password
-            - name: KAFKA_SASL_MECHANISM
-              value: "SCRAM-SHA-512"
-            - name: KAFKA_SECURITY_PROTOCOL
-              value: "SASL_PLAINTEXT"
             - name: CASSANDRA_CONTACT_POINTS
               value: cenotoo-cassandra
             - name: CASSANDRA_PORT

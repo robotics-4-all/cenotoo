@@ -31,13 +31,6 @@ spec:
               value: "cenotoo"
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: cenotoo-kafka-kafka-bootstrap:9092
-            - name: KAFKA_USERNAME
-              value: "cenotoo-consumer"
-            - name: KAFKA_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-consumer
-                  key: password
           resources:
             requests:
               cpu: "100m"

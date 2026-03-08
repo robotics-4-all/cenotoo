@@ -70,8 +70,6 @@ spec:
         port: 9092
         type: internal
         tls: false
-        authentication:
-          type: scram-sha-512
       - name: tls
         port: 9093
         type: internal
@@ -86,8 +84,7 @@ spec:
       min.insync.replicas: 1
       log.retention.hours: 168
       log.retention.bytes: -1
-    authorization:
-      type: simple
+      allow.everyone.if.no.acl.found: "true"
   entityOperator:
     topicOperator: {}
     userOperator: {}
