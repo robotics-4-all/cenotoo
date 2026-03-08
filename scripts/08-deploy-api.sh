@@ -109,15 +109,6 @@ if [ -z "$API_KEY_SECRET" ]; then
     ok "Generated random API key secret"
 fi
 
-prompt CASSANDRA_USERNAME "Cassandra username:" "cassandra"
-
-CASSANDRA_PASSWORD=""
-prompt CASSANDRA_PASSWORD "Cassandra password:" "" true
-if [ -z "$CASSANDRA_PASSWORD" ]; then
-    CASSANDRA_PASSWORD="cassandra"
-    warn "Using default Cassandra password"
-fi
-
 prompt ORG_ID "Organization ID (UUID):" "00000000-0000-0000-0000-000000000001"
 
 echo ""
@@ -139,21 +130,7 @@ data:
   admin-password: $(b64 "$ADMIN_PASSWORD")
 EOF
 
-cat > "$SECRETS_DIR/cassandra-superuser.yaml" <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cenotoo-cassandra-superuser
-  labels:
-    app.kubernetes.io/part-of: cenotoo
-type: Opaque
-data:
-  username: $(b64 "$CASSANDRA_USERNAME")
-  password: $(b64 "$CASSANDRA_PASSWORD")
-EOF
-
 ok "Wrote api-secrets.yaml"
-ok "Wrote cassandra-superuser.yaml"
 
 # ── Step 3: Build Docker image ───────────────────────────────────────────────
 step 3 "Build Docker image"
@@ -192,8 +169,8 @@ ok "Imported into k3s containerd"
 # ── Step 5: Deploy ───────────────────────────────────────────────────────────
 step 5 "Deploy to k3s"
 
-info "Applying secrets ..."
-kubectl apply -f "$SECRETS_DIR/" -n "$NAMESPACE"
+info "Applying API secrets ..."
+kubectl apply -f "$SECRETS_DIR/api-secrets.yaml" -n "$NAMESPACE"
 
 info "Applying API deployment ..."
 kubectl apply -f "$MANIFEST_DIR/07-api/" -n "$NAMESPACE"
