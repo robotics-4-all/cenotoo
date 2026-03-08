@@ -109,8 +109,6 @@ if [ -z "$API_KEY_SECRET" ]; then
     ok "Generated random API key secret"
 fi
 
-prompt ORG_ID "Organization ID (UUID):" "00000000-0000-0000-0000-000000000001"
-
 echo ""
 info "Writing K8s secrets ..."
 
@@ -205,7 +203,6 @@ echo -e "  │                                                  │"
 printf  "  │  %-48s │\n" "Image:    ${FULL_IMAGE}"
 printf  "  │  %-48s │\n" "Size:     ${IMAGE_SIZE_MB}MB"
 printf  "  │  %-48s │\n" "Admin:    ${ADMIN_USERNAME}"
-printf  "  │  %-48s │\n" "Org ID:   ${ORG_ID}"
 echo -e "  │                                                  │"
 printf  "  │  %-48s │\n" "API:      http://${NODE_IP}:30080"
 printf  "  │  %-48s │\n" "Docs:     http://${NODE_IP}:30080/docs"
