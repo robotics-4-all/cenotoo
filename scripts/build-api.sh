@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SECRETS_DIR="$PROJECT_DIR/deploy/k8s/01-secrets"
 API_SOURCE="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null && pwd || echo "")}"
 
 IMAGE_NAME="${CENOTOO_API_IMAGE:-cenotoo-api}"
@@ -33,6 +34,24 @@ warn()    { echo -e "  ${YELLOW}⚠${RESET} $*"; }
 fail()    { echo -e "  ${RED}✗${RESET} $*"; exit 1; }
 step()    { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${RESET} $2\n"; }
 dimtext() { echo -e "  ${DIM}$*${RESET}"; }
+b64()     { printf '%s' "$1" | base64 -w0; }
+
+prompt() {
+    local var_name="$1" prompt_text="$2" default="$3" is_secret="${4:-false}"
+    local value
+    if [ "$is_secret" = "true" ]; then
+        echo -en "  ${BLUE}▸${RESET} ${prompt_text} "
+        [ -n "$default" ] && echo -en "${DIM}(press Enter for default)${RESET} "
+        read -rs value
+        echo ""
+    else
+        echo -en "  ${BLUE}▸${RESET} ${prompt_text} "
+        [ -n "$default" ] && echo -en "${DIM}[${default}]${RESET} "
+        read -r value
+    fi
+    value="${value:-$default}"
+    eval "$var_name=\"\$value\""
+}
 
 usage() {
     echo -e "${BOLD}Usage:${RESET}  $0 [options]"
@@ -42,6 +61,7 @@ usage() {
     echo "  --registry REG    Registry prefix (e.g. ghcr.io/robotics-4-all)"
     echo "  --push            Push image to registry after build"
     echo "  --k3s             Import image into k3s containerd"
+    echo "  --configure       Configure API credentials (K8s secrets)"
     echo "  --test            Run tests before building"
     echo "  --no-cache        Build without Docker layer cache"
     echo "  --help            Show this help"
@@ -65,18 +85,20 @@ usage() {
 DO_PUSH=false
 DO_K3S=false
 DO_TEST=false
+DO_CONFIGURE=false
 NO_CACHE=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --tag)       IMAGE_TAG="$2"; shift 2 ;;
-        --registry)  REGISTRY="$2"; shift 2 ;;
-        --push)      DO_PUSH=true; shift ;;
-        --k3s)       DO_K3S=true; shift ;;
-        --test)      DO_TEST=true; shift ;;
-        --no-cache)  NO_CACHE="--no-cache"; shift ;;
-        --help|-h)   usage ;;
-        *)           fail "Unknown option: $1. Use --help for usage." ;;
+        --tag)        IMAGE_TAG="$2"; shift 2 ;;
+        --registry)   REGISTRY="$2"; shift 2 ;;
+        --push)       DO_PUSH=true; shift ;;
+        --k3s)        DO_K3S=true; shift ;;
+        --configure)  DO_CONFIGURE=true; shift ;;
+        --test)       DO_TEST=true; shift ;;
+        --no-cache)   NO_CACHE="--no-cache"; shift ;;
+        --help|-h)    usage ;;
+        *)            fail "Unknown option: $1. Use --help for usage." ;;
     esac
 done
 
@@ -88,6 +110,7 @@ fi
 
 # --- Calculate Steps ---
 TOTAL_STEPS=3
+[ "$DO_CONFIGURE" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "$DO_TEST" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "$DO_PUSH" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "$DO_K3S" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
@@ -99,10 +122,11 @@ banner
 
 echo -e "  ${BOLD}Image:${RESET}    ${FULL_IMAGE}"
 echo -e "  ${BOLD}Source:${RESET}   ${API_SOURCE}"
-[ "$DO_TEST" = "true" ]  && echo -e "  ${BOLD}Test:${RESET}     yes"
-[ "$DO_PUSH" = "true" ]  && echo -e "  ${BOLD}Push:${RESET}     yes"
-[ "$DO_K3S" = "true" ]   && echo -e "  ${BOLD}k3s:${RESET}      yes"
-[ -n "$NO_CACHE" ]       && echo -e "  ${BOLD}Cache:${RESET}    disabled"
+[ "$DO_CONFIGURE" = "true" ] && echo -e "  ${BOLD}Configure:${RESET}yes"
+[ "$DO_TEST" = "true" ]      && echo -e "  ${BOLD}Test:${RESET}     yes"
+[ "$DO_PUSH" = "true" ]      && echo -e "  ${BOLD}Push:${RESET}     yes"
+[ "$DO_K3S" = "true" ]       && echo -e "  ${BOLD}k3s:${RESET}      yes"
+[ -n "$NO_CACHE" ]           && echo -e "  ${BOLD}Cache:${RESET}    disabled"
 
 # ── Step: Preflight ──────────────────────────────────────────────────────────
 next_step
@@ -137,6 +161,81 @@ fi
 
 if [ "$DO_PUSH" = "true" ] && [ -z "$REGISTRY" ]; then
     fail "--push requires --registry (e.g. --registry ghcr.io/robotics-4-all)"
+fi
+
+# ── Step: Configure credentials (optional) ───────────────────────────────────
+if [ "$DO_CONFIGURE" = "true" ]; then
+    next_step
+    step "$CURRENT_STEP" "Configure API credentials"
+
+    echo -e "  ${DIM}Set credentials for the Cenotoo API deployment.${RESET}"
+    echo -e "  ${DIM}Press Enter to accept defaults. Secrets are written to K8s manifests.${RESET}"
+    echo ""
+
+    prompt ADMIN_USERNAME "Admin username:" "admin"
+    prompt ADMIN_PASSWORD "Admin password:" "" true
+    while [ -z "$ADMIN_PASSWORD" ]; do
+        warn "Password cannot be empty"
+        prompt ADMIN_PASSWORD "Admin password:" "" true
+    done
+
+    prompt JWT_SECRET "JWT secret key:" "" true
+    if [ -z "$JWT_SECRET" ]; then
+        JWT_SECRET=$(openssl rand -hex 32)
+        ok "Generated random JWT secret"
+    fi
+
+    prompt API_KEY_SECRET "API key secret:" "" true
+    if [ -z "$API_KEY_SECRET" ]; then
+        API_KEY_SECRET=$(openssl rand -hex 32)
+        ok "Generated random API key secret"
+    fi
+
+    prompt CASSANDRA_USERNAME "Cassandra username:" "cassandra"
+    prompt CASSANDRA_PASSWORD "Cassandra password:" "" true
+    if [ -z "$CASSANDRA_PASSWORD" ]; then
+        CASSANDRA_PASSWORD="cassandra"
+        warn "Using default Cassandra password"
+    fi
+
+    prompt ORG_ID "Organization ID (UUID):" "00000000-0000-0000-0000-000000000001"
+
+    echo ""
+    info "Writing K8s secrets ..."
+
+    cat > "$SECRETS_DIR/api-secrets.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cenotoo-api-secrets
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: cenotoo
+type: Opaque
+data:
+  jwt-secret-key: $(b64 "$JWT_SECRET")
+  api-key-secret: $(b64 "$API_KEY_SECRET")
+  admin-username: $(b64 "$ADMIN_USERNAME")
+  admin-password: $(b64 "$ADMIN_PASSWORD")
+EOF
+
+    cat > "$SECRETS_DIR/cassandra-superuser.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cenotoo-cassandra-superuser
+  labels:
+    app.kubernetes.io/part-of: cenotoo
+type: Opaque
+data:
+  username: $(b64 "$CASSANDRA_USERNAME")
+  password: $(b64 "$CASSANDRA_PASSWORD")
+EOF
+
+    ok "Wrote $SECRETS_DIR/api-secrets.yaml"
+    ok "Wrote $SECRETS_DIR/cassandra-superuser.yaml"
+
+    CONFIGURED_ORG_ID="$ORG_ID"
 fi
 
 # ── Step: Test (optional) ────────────────────────────────────────────────────
@@ -221,6 +320,9 @@ printf  "  │  %-44s │\n" "Image:  ${FULL_IMAGE}"
 printf  "  │  %-44s │\n" "Size:   ${IMAGE_SIZE_MB}MB"
 printf  "  │  %-44s │\n" "Time:   ${BUILD_DURATION}s"
 echo -e "  │                                              │"
+if [ "$DO_CONFIGURE" = "true" ]; then
+    echo -e "  │  ${GREEN}✓${RESET} Credentials configured                    │"
+fi
 if [ "$DO_K3S" = "true" ]; then
     echo -e "  │  ${GREEN}✓${RESET} Imported into k3s                         │"
 fi
@@ -228,4 +330,14 @@ if [ "$DO_PUSH" = "true" ]; then
     echo -e "  │  ${GREEN}✓${RESET} Pushed to registry                        │"
 fi
 echo -e "  └──────────────────────────────────────────────┘"
+
+if [ "${CONFIGURED_ORG_ID:-}" != "" ]; then
+    echo ""
+    echo -e "  ${BOLD}Next steps:${RESET}"
+    echo -e "  ${DIM}1. Deploy:    sudo ./scripts/07-deploy-cenotoo.sh${RESET}"
+    echo -e "  ${DIM}2. Login:     curl -X POST http://<node-ip>:30080/api/v1/token \\${RESET}"
+    echo -e "  ${DIM}                -d 'username=${ADMIN_USERNAME}&password=***'${RESET}"
+    echo -e "  ${DIM}3. Create org: POST /api/v1/organizations${RESET}"
+    echo -e "  ${DIM}4. API docs:  http://<node-ip>:30080/docs${RESET}"
+fi
 echo ""
