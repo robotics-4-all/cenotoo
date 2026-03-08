@@ -21,6 +21,7 @@
   <img src="https://img.shields.io/badge/Flink-1.18-E6526F?logo=apacheflink&logoColor=white" alt="Flink" />
   <img src="https://img.shields.io/badge/Kubernetes-k3s-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" />
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-orange?logo=apache&logoColor=white" alt="Apache 2.0" /></a>
 </p>
 
 ---
@@ -205,4 +206,4 @@ ruff check . && ruff format --check . && pytest tests/ -v
 
 ## License
 
-This project is proprietary. All rights reserved.
+This project is licensed under the [Apache License 2.0](LICENSE).
