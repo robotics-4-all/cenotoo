@@ -1,28 +1,19 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 07-deploy-cenotoo.sh — Deploy Cenotoo on k3s
+# 07-deploy-cenotoo.sh — Deploy Cenotoo on k3s (kubectl apply)
 # =============================================================================
-# Deploys the Cenotoo Helm chart (Kafka + Cassandra + Flink + consumers).
-# Uses k3s-specific value overrides (local-path StorageClass).
-# Re-running this script is safe (idempotent — uses helm upgrade --install).
+# Applies manifests in dependency order: secrets -> kafka -> cassandra -> flink -> consumers.
+# Re-running is safe (kubectl apply is idempotent).
 #
-# Prerequisites: k3s (01), cert-manager (02), Strimzi (03),
-#                K8ssandra (04), Flink operator (05)
+# Prerequisites: k3s (01), cert-manager (02), Strimzi (03), Flink operator (05)
 # Optional:      monitoring stack (06)
-# Produces:      Full Cenotoo stack running in cenotoo namespace
 # =============================================================================
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MANIFEST_DIR="$(cd "$SCRIPT_DIR/../deploy/k8s" && pwd)"
 NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
-CHART_DIR="$(cd "$(dirname "$0")/../deploy/helm/cenotoo" && pwd)"
-VALUES_OVERRIDE="${CENOTOO_VALUES:-}"  # Extra values file (e.g., values-production.yaml)
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 info()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
 ok()    { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
 warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
@@ -30,18 +21,47 @@ fail()  { printf '\033[1;31m[FAIL]\033[0m  %s\n' "$*"; exit 1; }
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
+wait_for_pods() {
+    local ns="$1" label="$2" timeout="${3:-300}" expected="${4:-1}"
+    info "Waiting for pods ($label) ..."
+    local elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local ready
+        ready=$(kubectl get pods -n "$ns" -l "$label" --no-headers 2>/dev/null \
+            | grep -c '1/1\|2/2\|Running' || true)
+        if [ "$ready" -ge "$expected" ]; then return 0; fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    fail "Pods ($label) in $ns not ready within ${timeout}s"
+}
+
+wait_for_cassandra() {
+    local ns="$1" timeout="${2:-300}"
+    info "Waiting for Cassandra to be ready ..."
+    local elapsed=0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local phase ready
+        phase=$(kubectl get pod cenotoo-cassandra-0 -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
+        ready=$(kubectl get pod cenotoo-cassandra-0 -n "$ns" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+        if [ "$phase" = "Running" ] && [ "$ready" = "true" ]; then return 0; fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    fail "Cassandra not ready within ${timeout}s"
+}
+
 # ---------------------------------------------------------------------------
-# Step 1 — Preflight checks
+# Preflight
 # ---------------------------------------------------------------------------
 info "Running preflight checks ..."
 
-# Check required CRDs
-REQUIRED_CRDS=("kafkas.kafka.strimzi.io" "k8ssandraclusters.k8ssandra.io" "flinkdeployments.flink.apache.org")
+REQUIRED_CRDS=("kafkas.kafka.strimzi.io" "flinkdeployments.flink.apache.org")
 for crd in "${REQUIRED_CRDS[@]}"; do
     if kubectl get crd "$crd" &>/dev/null; then
         ok "CRD found: $crd"
     else
-        fail "Required CRD not found: $crd — run prerequisite scripts first"
+        fail "Required CRD not found: $crd"
     fi
 done
 
@@ -49,112 +69,56 @@ REQUIRED_IMAGES=("kafka-cassandra-consumer" "kafka-live-consumer" "custom-flink-
 images_missing=false
 for img in "${REQUIRED_IMAGES[@]}"; do
     if sudo k3s ctr images list 2>/dev/null | grep -q "$img"; then
-        ok "Image found in k3s: $img"
+        ok "Image found: $img"
     else
-        warn "Image not found in k3s: $img"
+        warn "Image not found: $img"
         images_missing=true
     fi
 done
 if [ "$images_missing" = "true" ]; then
-    warn "Consumer/Flink pods will fail with ErrImagePull"
     warn "Run: ./scripts/build-images.sh --k3s"
 fi
 
-# Check monitoring (warn if missing)
+# ---------------------------------------------------------------------------
+# Deploy
+# ---------------------------------------------------------------------------
+info "Applying namespace ..."
+kubectl apply -f "$MANIFEST_DIR/00-namespace.yaml"
+
+info "Applying secrets ..."
+kubectl apply -f "$MANIFEST_DIR/01-secrets/" -n "$NAMESPACE"
+
+info "Applying Kafka (Strimzi) ..."
+kubectl apply -f "$MANIFEST_DIR/02-kafka/" -n "$NAMESPACE"
+wait_for_pods "$NAMESPACE" "strimzi.io/cluster=cenotoo-kafka,strimzi.io/kind=Kafka" 600 1
+ok "Kafka is running"
+
+info "Applying Cassandra ..."
+kubectl apply -f "$MANIFEST_DIR/03-cassandra/" -n "$NAMESPACE"
+wait_for_cassandra "$NAMESPACE" 300
+ok "Cassandra is ready"
+
+info "Applying Flink ..."
+kubectl apply -f "$MANIFEST_DIR/04-flink/" -n "$NAMESPACE"
+
+info "Applying consumers ..."
+kubectl apply -f "$MANIFEST_DIR/05-consumers/" -n "$NAMESPACE"
+
 if kubectl get crd prometheusrules.monitoring.coreos.com &>/dev/null; then
-    ok "Prometheus Operator CRDs found (monitoring will be enabled)"
-    MONITORING_AVAILABLE=true
-else
-    warn "Prometheus Operator CRDs not found — monitoring resources will be skipped"
-    warn "Run 06-install-monitoring.sh to enable monitoring"
-    MONITORING_AVAILABLE=false
-fi
-
-# ---------------------------------------------------------------------------
-# Step 2 — Create namespace
-# ---------------------------------------------------------------------------
-if kubectl get ns "$NAMESPACE" &>/dev/null; then
-    ok "Namespace $NAMESPACE already exists"
-else
-    info "Creating namespace $NAMESPACE ..."
-    kubectl create namespace "$NAMESPACE"
-    ok "Namespace $NAMESPACE created"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 3 — Build Helm values
-# ---------------------------------------------------------------------------
-# k3s uses local-path as default StorageClass
-HELM_ARGS=(
-    --namespace "$NAMESPACE"
-    --set kafka.storage.storageClassName=local-path
-    --set cassandra.storage.storageClassName=local-path
-    --set flink.storage.storageClassName=local-path
-)
-
-# Auto-detect single-node cluster and adjust Cassandra size
-NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-if [ "$NODE_COUNT" -le 1 ]; then
-    warn "Single-node cluster detected ($NODE_COUNT node) — setting cassandra.size=1"
-    HELM_ARGS+=(--set cassandra.size=1)
-else
-    info "Multi-node cluster detected ($NODE_COUNT nodes)"
-fi
-
-# Disable monitoring if Prometheus Operator is not installed
-if [ "$MONITORING_AVAILABLE" = "false" ]; then
-    HELM_ARGS+=(--set monitoring.enabled=false)
-fi
-
-# Add extra values file if specified
-if [ -n "$VALUES_OVERRIDE" ]; then
-    if [ -f "$VALUES_OVERRIDE" ]; then
-        HELM_ARGS+=(-f "$VALUES_OVERRIDE")
-        info "Using values override: $VALUES_OVERRIDE"
-    else
-        fail "Values file not found: $VALUES_OVERRIDE"
+    if [ -d "$MANIFEST_DIR/06-monitoring" ] && [ "$(ls -A "$MANIFEST_DIR/06-monitoring" 2>/dev/null)" ]; then
+        info "Applying monitoring ..."
+        kubectl apply -f "$MANIFEST_DIR/06-monitoring/" -n "$NAMESPACE"
     fi
+else
+    warn "Prometheus Operator not found — skipping monitoring"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 4 — Deploy Cenotoo
+# Status
 # ---------------------------------------------------------------------------
-info "Deploying Cenotoo to namespace $NAMESPACE ..."
-helm upgrade --install cenotoo "$CHART_DIR" \
-    "${HELM_ARGS[@]}" \
-    --timeout 10m
-
-ok "Cenotoo Helm release deployed"
-
-# ---------------------------------------------------------------------------
-# Step 5 — Show status
-# ---------------------------------------------------------------------------
-echo ""
-info "Cenotoo resources in namespace $NAMESPACE:"
-echo ""
-echo "--- Kafka ---"
-kubectl get kafka,kafkanodepool,kafkauser -n "$NAMESPACE" 2>/dev/null || echo "  (pending)"
-echo ""
-echo "--- Cassandra ---"
-kubectl get k8ssandraclusters,cassandradatacenters -n "$NAMESPACE" 2>/dev/null || echo "  (pending)"
-echo ""
-echo "--- Flink ---"
-kubectl get flinkdeployment -n "$NAMESPACE" 2>/dev/null || echo "  (pending)"
-echo ""
-echo "--- Consumers ---"
-kubectl get deployments -n "$NAMESPACE" -l 'app.kubernetes.io/component in (cassandra-writer,live-consumer)' 2>/dev/null || echo "  (pending)"
 echo ""
 echo "--- All pods ---"
 kubectl get pods -n "$NAMESPACE" 2>/dev/null || echo "  (none yet)"
 echo ""
-
-ok "Cenotoo deployment initiated"
-echo ""
-info "Resources may take several minutes to become fully ready."
-info "Monitor progress: kubectl get pods -n $NAMESPACE -w"
-echo ""
-info "Useful commands:"
-info "  kubectl get kafka -n $NAMESPACE                    # Kafka cluster status"
-info "  kubectl get k8ssandraclusters -n $NAMESPACE        # Cassandra cluster status"
-info "  kubectl get flinkdeployment -n $NAMESPACE          # Flink status"
-info "  kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=cassandra-writer  # Consumer logs"
+ok "Cenotoo deployment complete"
+info "Monitor: kubectl get pods -n $NAMESPACE -w"
