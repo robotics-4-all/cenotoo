@@ -105,6 +105,9 @@ kubectl apply -f "$MANIFEST_DIR/03-cassandra/" -n "$NAMESPACE"
 wait_for_cassandra "$NAMESPACE" 300
 ok "Cassandra is ready"
 
+info "Initializing Cassandra schema ..."
+"$SCRIPT_DIR/init-cassandra-schema.sh"
+
 info "Applying Flink ..."
 kubectl apply -f "$MANIFEST_DIR/04-flink/" -n "$NAMESPACE"
 
