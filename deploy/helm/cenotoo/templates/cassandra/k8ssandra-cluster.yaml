@@ -20,10 +20,11 @@ spec:
     serverVersion: {{ .Values.cassandra.version | quote }}
     superuserSecretRef:
       name: {{ include "cenotoo.fullname" . }}-cassandra-superuser
-    config:
-      cassandraYaml:
-        authenticator: PasswordAuthenticator
-        authorizer: CassandraAuthorizer
+    # auth: true (above) handles authenticator/authorizer automatically.
+    # K8ssandra operator bootstraps with AllowAllAuthenticator first,
+    # creates the superuser, then switches to PasswordAuthenticator.
+    # Do NOT set authenticator/authorizer in cassandraYaml — it conflicts
+    # with the operator's bootstrap workflow.
     {{- if and .Values.monitoring.enabled .Values.monitoring.cassandra.metricsEnabled }}
     telemetry:
       mcac:
