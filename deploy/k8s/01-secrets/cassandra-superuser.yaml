@@ -1,0 +1,15 @@
+# Cassandra superuser credentials.
+# Default cassandra/cassandra is created automatically by PasswordAuthenticator.
+# Override in production via sealed-secrets or external-secrets.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cenotoo-cassandra-superuser
+  labels:
+    app.kubernetes.io/part-of: cenotoo
+type: Opaque
+data:
+  # "cassandra" base64-encoded
+  username: Y2Fzc2FuZHJh
+  # "cassandra" base64-encoded — CHANGE AFTER FIRST BOOT
+  password: Y2Fzc2FuZHJh
