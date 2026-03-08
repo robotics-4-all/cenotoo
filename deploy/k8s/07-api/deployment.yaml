@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cenotoo-api
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: cenotoo-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: KAFKA_BROKERS
+              value: cenotoo-kafka-kafka-bootstrap:9092
+            - name: KAFKA_USERNAME
+              value: "cenotoo-consumer"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-consumer
+                  key: password
+            - name: KAFKA_SASL_MECHANISM
+              value: "SCRAM-SHA-512"
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: "SASL_PLAINTEXT"
+            - name: CASSANDRA_CONTACT_POINTS
+              value: cenotoo-cassandra
+            - name: CASSANDRA_PORT
+              value: "9042"
+            - name: CASSANDRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-cassandra-superuser
+                  key: username
+            - name: CASSANDRA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-cassandra-superuser
+                  key: password
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-api-secrets
+                  key: jwt-secret-key
+            - name: API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-api-secrets
+                  key: api-key-secret
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-api-secrets
+                  key: admin-username
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-api-secrets
+                  key: admin-password
+            - name: ORGANIZATION_ID
+              value: "00000000-0000-0000-0000-000000000001"
+            - name: CORS_ORIGINS
+              value: "*"
+            - name: OTLP_SERVICE_NAME
+              value: "cenotoo-api"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

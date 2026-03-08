@@ -2,7 +2,7 @@
 # =============================================================================
 # 07-deploy-cenotoo.sh — Deploy Cenotoo on k3s (kubectl apply)
 # =============================================================================
-# Applies manifests in dependency order: secrets -> kafka -> cassandra -> flink -> consumers.
+# Applies manifests in dependency order: secrets -> kafka -> cassandra -> flink -> consumers -> api.
 # Re-running is safe (kubectl apply is idempotent).
 #
 # Prerequisites: k3s (01), cert-manager (02), Strimzi (03), Flink operator (05)
@@ -65,7 +65,7 @@ for crd in "${REQUIRED_CRDS[@]}"; do
     fi
 done
 
-REQUIRED_IMAGES=("kafka-cassandra-consumer" "kafka-live-consumer" "custom-flink-image")
+REQUIRED_IMAGES=("kafka-cassandra-consumer" "kafka-live-consumer" "custom-flink-image" "cenotoo-api")
 images_missing=false
 for img in "${REQUIRED_IMAGES[@]}"; do
     if sudo k3s ctr images list 2>/dev/null | grep -q "$img"; then
@@ -103,6 +103,9 @@ kubectl apply -f "$MANIFEST_DIR/04-flink/" -n "$NAMESPACE"
 
 info "Applying consumers ..."
 kubectl apply -f "$MANIFEST_DIR/05-consumers/" -n "$NAMESPACE"
+
+info "Applying API ..."
+kubectl apply -f "$MANIFEST_DIR/07-api/" -n "$NAMESPACE"
 
 if kubectl get crd prometheusrules.monitoring.coreos.com &>/dev/null; then
     if [ -d "$MANIFEST_DIR/06-monitoring" ] && [ "$(ls -A "$MANIFEST_DIR/06-monitoring" 2>/dev/null)" ]; then
