@@ -2,7 +2,7 @@
 # =============================================================================
 # 02-install-cert-manager.sh — Ensure cert-manager is available
 # =============================================================================
-# cert-manager is required by K8ssandra Operator (step 04).
+# cert-manager is required by Flink Operator (webhook certificates).
 # Re-running this script is safe (idempotent).
 #
 # If cert-manager is already installed (by another project or manually),
