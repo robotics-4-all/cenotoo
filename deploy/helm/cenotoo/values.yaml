@@ -40,6 +40,9 @@ cassandra:
   size: 2
   replication:
     class: NetworkTopologyStrategy
+  heap:
+    size: "1024M"
+    newGenSize: "256M"
   storage:
     size: 10Gi
     storageClassName: standard
@@ -49,7 +52,7 @@ cassandra:
       memory: "2Gi"
     limits:
       cpu: "2"
-      memory: "4Gi"
+      memory: "10Gi"
 
 flink:
   image:
