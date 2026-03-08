@@ -1,5 +1,6 @@
 import os
 
+from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import Cluster
 from dotenv import load_dotenv
 
@@ -13,10 +14,15 @@ if not CASSANDRA_SEEDS_ENV:
 CASSANDRA_NODES = CASSANDRA_SEEDS_ENV.split(",")  # Comma-separated list of IPs
 CASSANDRA_DC = os.getenv("CASSANDRA_DC", "datacenter1")
 CASSANDRA_RF = int(os.getenv("CASSANDRA_RF", "2"))
-
+CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
+CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
 
 # Establish connection to the Cassandra cluster
-cluster = Cluster(CASSANDRA_NODES)
+auth_provider = None
+if CASSANDRA_USERNAME and CASSANDRA_PASSWORD:
+    auth_provider = PlainTextAuthProvider(username=CASSANDRA_USERNAME, password=CASSANDRA_PASSWORD)
+
+cluster = Cluster(CASSANDRA_NODES, auth_provider=auth_provider)
 session = cluster.connect()
 
 # Creating the metadata keyspace with NetworkTopologyStrategy

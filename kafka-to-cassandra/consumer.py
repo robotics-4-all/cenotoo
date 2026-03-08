@@ -5,6 +5,7 @@ import re
 import signal
 import time
 
+from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import Cluster
 from confluent_kafka import Consumer, KafkaError, KafkaException
 
@@ -16,8 +17,14 @@ logger = logging.getLogger(__name__)
 
 # Kafka and Cassandra configurations from environment variables
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_USERNAME = os.getenv("KAFKA_USERNAME", "")
+KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
+KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", "SCRAM-SHA-512")
+KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
 CASSANDRA_CONTACT_POINTS = [os.getenv("CASSANDRA_CONTACT_POINTS", "localhost")]
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
+CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
+CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "your_collection_name")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "your_project_name")
 ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "your_organization_name")
@@ -48,10 +55,14 @@ def _validate_identifier(name):
     return name
 
 
-def _connect_cassandra(contact_points, port, max_retries=5):
+def _connect_cassandra(contact_points, port, username="", password="", max_retries=5):
+    auth_provider = None
+    if username and password:
+        auth_provider = PlainTextAuthProvider(username=username, password=password)
+
     for attempt in range(1, max_retries + 1):
         try:
-            cluster = Cluster(contact_points, port=port)
+            cluster = Cluster(contact_points, port=port, auth_provider=auth_provider)
             session = cluster.connect()
             logger.info("Connected to Cassandra (attempt %d/%d)", attempt, max_retries)
             return cluster, session
@@ -73,19 +84,30 @@ def consume_and_store(topic_name, keyspace_name, table_name):
     _validate_identifier(keyspace_name)
     _validate_identifier(table_name)
 
-    cluster, session = _connect_cassandra(CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT)
+    cluster, session = _connect_cassandra(
+        CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT, CASSANDRA_USERNAME, CASSANDRA_PASSWORD
+    )
 
     # Cache for prepared statements keyed by frozenset of column names
     prepared_cache = {}
 
-    consumer = Consumer(
-        {
-            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-            "group.id": f"{topic_name}_cassandra_writer",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        }
-    )
+    consumer_config = {
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "group.id": f"{topic_name}_cassandra_writer",
+        "auto.offset.reset": "earliest",
+        "enable.auto.commit": False,
+    }
+    if KAFKA_USERNAME and KAFKA_PASSWORD:
+        consumer_config.update(
+            {
+                "security.protocol": KAFKA_SECURITY_PROTOCOL,
+                "sasl.mechanism": KAFKA_SASL_MECHANISM,
+                "sasl.username": KAFKA_USERNAME,
+                "sasl.password": KAFKA_PASSWORD,
+            }
+        )
+
+    consumer = Consumer(consumer_config)
 
     consumer.subscribe([topic_name])
     logger.info("Subscribed to topic: %s", topic_name)
@@ -112,7 +134,7 @@ def consume_and_store(topic_name, keyspace_name, table_name):
             col_key = frozenset(columns)
             if col_key not in prepared_cache:
                 col_str = ", ".join(columns)
-                placeholders = ", ".join(["%s"] * len(columns))
+                placeholders = ", ".join(["?"] * len(columns))
                 query = (
                     f"INSERT INTO {keyspace_name}.{table_name} ({col_str}) VALUES ({placeholders})"
                 )
