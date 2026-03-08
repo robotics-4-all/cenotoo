@@ -59,7 +59,23 @@ class TestConnectCassandra:
 
         cluster, session = _connect_cassandra(["localhost"], 9042, max_retries=3)
 
-        mock_cluster_cls.assert_called_once_with(["localhost"], port=9042)
+        mock_cluster_cls.assert_called_once_with(["localhost"], port=9042, auth_provider=None)
+        assert session is mock_session
+
+    @patch("cassandra_writer.PlainTextAuthProvider")
+    @patch("cassandra_writer.Cluster")
+    def test_connects_with_auth(self, mock_cluster_cls, mock_auth_cls):
+        mock_session = MagicMock()
+        mock_cluster_cls.return_value.connect.return_value = mock_session
+        mock_auth = MagicMock()
+        mock_auth_cls.return_value = mock_auth
+
+        cluster, session = _connect_cassandra(
+            ["localhost"], 9042, username="admin", password="secret", max_retries=3
+        )
+
+        mock_auth_cls.assert_called_once_with(username="admin", password="secret")
+        mock_cluster_cls.assert_called_once_with(["localhost"], port=9042, auth_provider=mock_auth)
         assert session is mock_session
 
     @patch("cassandra_writer.time.sleep")
@@ -89,6 +105,48 @@ class TestConnectCassandra:
 
 
 class TestConsumeAndStore:
+    @patch("cassandra_writer.KAFKA_PASSWORD", "secret")
+    @patch("cassandra_writer.KAFKA_USERNAME", "testuser")
+    @patch("cassandra_writer._connect_cassandra")
+    @patch("cassandra_writer.Consumer")
+    def test_consumer_uses_sasl_when_credentials_set(self, mock_consumer_cls, mock_connect):
+        mock_session = MagicMock()
+        mock_cluster = MagicMock()
+        mock_connect.return_value = (mock_cluster, mock_session)
+
+        consumer_instance = mock_consumer_cls.return_value
+        consumer_instance.poll.side_effect = lambda t: setattr(_mod, "_shutdown", True) or None
+
+        _mod._shutdown = False
+        _mod.consume_and_store("test_topic", "test_org", "test_table")
+
+        config = mock_consumer_cls.call_args[0][0]
+        assert config["security.protocol"] == "SASL_PLAINTEXT"
+        assert config["sasl.mechanism"] == "SCRAM-SHA-512"
+        assert config["sasl.username"] == "testuser"
+        assert config["sasl.password"] == "secret"
+        _mod._shutdown = False
+
+    @patch("cassandra_writer.KAFKA_PASSWORD", "")
+    @patch("cassandra_writer.KAFKA_USERNAME", "")
+    @patch("cassandra_writer._connect_cassandra")
+    @patch("cassandra_writer.Consumer")
+    def test_consumer_no_sasl_without_credentials(self, mock_consumer_cls, mock_connect):
+        mock_session = MagicMock()
+        mock_cluster = MagicMock()
+        mock_connect.return_value = (mock_cluster, mock_session)
+
+        consumer_instance = mock_consumer_cls.return_value
+        consumer_instance.poll.side_effect = lambda t: setattr(_mod, "_shutdown", True) or None
+
+        _mod._shutdown = False
+        _mod.consume_and_store("test_topic", "test_org", "test_table")
+
+        config = mock_consumer_cls.call_args[0][0]
+        assert "security.protocol" not in config
+        assert "sasl.mechanism" not in config
+        _mod._shutdown = False
+
     @patch("cassandra_writer._connect_cassandra")
     @patch("cassandra_writer.Consumer")
     def test_processes_message_and_commits(self, mock_consumer_cls, mock_connect):
