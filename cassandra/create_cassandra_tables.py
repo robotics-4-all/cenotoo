@@ -95,7 +95,14 @@ session.execute("""
     );
 """)
 
-# Closing the session and cluster connection
+session.execute("""
+    CREATE TABLE IF NOT EXISTS revoked_tokens (
+        jti TEXT PRIMARY KEY,
+        revoked_at TIMESTAMP,
+        expires_at TIMESTAMP
+    );
+""")
+
 session.shutdown()
 cluster.shutdown()
 
