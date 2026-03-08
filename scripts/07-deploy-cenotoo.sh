@@ -92,6 +92,15 @@ HELM_ARGS=(
     --set flink.storage.storageClassName=local-path
 )
 
+# Auto-detect single-node cluster and adjust Cassandra size
+NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
+if [ "$NODE_COUNT" -le 1 ]; then
+    warn "Single-node cluster detected ($NODE_COUNT node) — setting cassandra.size=1"
+    HELM_ARGS+=(--set cassandra.size=1)
+else
+    info "Multi-node cluster detected ($NODE_COUNT nodes)"
+fi
+
 # Disable monitoring if Prometheus Operator is not installed
 if [ "$MONITORING_AVAILABLE" = "false" ]; then
     HELM_ARGS+=(--set monitoring.enabled=false)
