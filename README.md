@@ -1,6 +1,6 @@
 # **Cenotoo**
 
-A distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose for development and Kubernetes (Helm) for production.
+A distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose for development and Kubernetes (k3s) for production.
 
 ---
 
@@ -28,11 +28,11 @@ All services include health checks. Cassandra 2 waits for Cassandra 1, TaskManag
 
 ### Kubernetes (Production)
 
-Deployed via Helm chart (`deploy/helm/cenotoo/`) using:
+Deployed via raw K8s manifests (`deploy/k8s/`) on k3s:
 - **Strimzi** for Kafka (KRaft, SCRAM-SHA-512, KafkaNodePools)
-- **K8ssandra** for Cassandra (PasswordAuthenticator, optional Medusa backups)
+- **Cassandra StatefulSet** with explicit JVM heap control (PasswordAuthenticator)
 - **Flink Operator** for Flink (K8s-native HA, checkpoints, savepoints)
-- **Prometheus + Grafana** for observability (PodMonitors, alerting rules, dashboards)
+- **Prometheus + Grafana** for observability (optional, PodMonitors, alerting rules, dashboards)
 
 ---
 
@@ -43,10 +43,10 @@ Deployed via Helm chart (`deploy/helm/cenotoo/`) using:
 - **Docker Compose** (>= 1.29)
 - **Python** (>= 3.8) — for Cassandra schema init
 
-### Kubernetes
+### Kubernetes (k3s)
 - **kubectl** + cluster access
-- **Helm** (>= 3.x)
-- Pre-installed operators: Strimzi, K8ssandra (with cert-manager), Flink Operator
+- Pre-installed operators: Strimzi, Flink Operator (cert-manager for webhooks)
+- Docker (for building consumer images)
 - Optional: kube-prometheus-stack (for monitoring)
 
 ---
@@ -110,27 +110,26 @@ Deployed via Helm chart (`deploy/helm/cenotoo/`) using:
 Bootstrap scripts install all prerequisites and deploy Cenotoo on a k3s cluster. Run them in order:
 
 ```bash
-./scripts/01-install-k3s.sh              # k3s + Helm
-./scripts/02-install-cert-manager.sh     # cert-manager (required by K8ssandra)
-./scripts/03-install-strimzi-operator.sh # Strimzi Kafka operator
-./scripts/04-install-k8ssandra-operator.sh # K8ssandra Cassandra operator
-./scripts/05-install-flink-operator.sh   # Flink Kubernetes operator
-./scripts/06-install-monitoring.sh       # kube-prometheus-stack (optional)
-./scripts/07-deploy-cenotoo.sh           # Deploy Cenotoo Helm chart
+sudo ./scripts/01-install-k3s.sh              # k3s + Helm
+sudo ./scripts/02-install-cert-manager.sh     # cert-manager (Flink webhooks)
+sudo ./scripts/03-install-strimzi-operator.sh # Strimzi Kafka operator
+sudo ./scripts/05-install-flink-operator.sh   # Flink Kubernetes operator
+sudo ./scripts/06-install-monitoring.sh       # kube-prometheus-stack (optional)
+./scripts/build-images.sh --k3s              # Build + import Docker images
+sudo ./scripts/07-deploy-cenotoo.sh           # Deploy Cenotoo manifests
 ```
 
 Each script is idempotent (safe to re-run) and waits for readiness before completing.
 Version overrides are supported via environment variables (e.g., `STRIMZI_VERSION=0.51.0`).
 
-### Manual Helm install (existing cluster)
+After deployment, verify with the included test scripts:
 
 ```bash
-helm install cenotoo deploy/helm/cenotoo/
-helm install cenotoo deploy/helm/cenotoo/ -f deploy/helm/cenotoo/values-production.yaml
-helm install cenotoo deploy/helm/cenotoo/ -f deploy/helm/cenotoo/values-staging.yaml
+sudo ./scripts/smoke-test.sh        # Health checks (pods, CRDs, services)
+sudo ./scripts/integration-test.sh  # E2E data flow (Kafka -> Cassandra)
 ```
 
-See `values.yaml` for all configurable parameters including monitoring, backup, and resource limits.
+For the full step-by-step guide, see [docs/k3s-setup.md](docs/k3s-setup.md).
 
 ---
 
