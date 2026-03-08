@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 02-install-cert-manager.sh — Install cert-manager
+# 02-install-cert-manager.sh — Ensure cert-manager is available
 # =============================================================================
 # cert-manager is required by K8ssandra Operator (step 04).
 # Re-running this script is safe (idempotent).
 #
-# Prerequisites: k3s running (01-install-k3s.sh), helm
+# If cert-manager is already installed (by another project or manually),
+# this script reuses it — it does NOT upgrade or modify the existing
+# installation. Use CERT_MANAGER_FORCE_INSTALL=true to override.
+#
+# Uses kubectl apply (not Helm) to avoid ownership conflicts with
+# other projects that may share the same cert-manager installation.
+#
+# Prerequisites: k3s running (01-install-k3s.sh)
 # Produces:      cert-manager deployed in cert-manager namespace
 # =============================================================================
 set -euo pipefail
@@ -13,8 +20,10 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.19.4}"
+CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.17.2}"
 NAMESPACE="cert-manager"
+FORCE_INSTALL="${CERT_MANAGER_FORCE_INSTALL:-false}"
+MANIFEST_URL="https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,56 +35,58 @@ fail()  { printf '\033[1;31m[FAIL]\033[0m  %s\n' "$*"; exit 1; }
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
-wait_for_pods() {
-    local ns="$1" label="$2" timeout="${3:-300}"
-    info "Waiting for pods in $ns ($label) ..."
-    kubectl wait --for=condition=Ready pod \
-        -l "$label" -n "$ns" --timeout="${timeout}s" 2>/dev/null || true
-    # Fallback: poll until at least one pod is Running
-    local elapsed=0
-    while [ "$elapsed" -lt "$timeout" ]; do
-        local ready
-        ready=$(kubectl get pods -n "$ns" -l "$label" --no-headers 2>/dev/null \
-            | grep -c 'Running' || true)
-        if [ "$ready" -gt 0 ]; then return 0; fi
-        sleep 5
-        elapsed=$((elapsed + 5))
-    done
-    fail "Pods ($label) in $ns not ready within ${timeout}s"
+cert_manager_healthy() {
+    local total ready
+    total=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
+    ready=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
+        | awk '{split($2,a,"/"); if(a[1]==a[2] && $3=="Running") c++} END{print c+0}')
+    [ "$total" -ge 3 ] && [ "$ready" -eq "$total" ]
 }
 
 # ---------------------------------------------------------------------------
-# Step 1 — Add Helm repo
+# Step 1 — Detect existing cert-manager
 # ---------------------------------------------------------------------------
-info "Adding Jetstack Helm repo ..."
-helm repo add jetstack https://charts.jetstack.io --force-update
-helm repo update jetstack
+if kubectl get crd certificates.cert-manager.io &>/dev/null; then
+    info "cert-manager CRDs detected in cluster"
 
-# ---------------------------------------------------------------------------
-# Step 2 — Install cert-manager
-# ---------------------------------------------------------------------------
-if helm status cert-manager -n "$NAMESPACE" &>/dev/null; then
-    ok "cert-manager is already installed"
-    info "Upgrading to $CERT_MANAGER_VERSION ..."
-    helm upgrade cert-manager jetstack/cert-manager \
-        --namespace "$NAMESPACE" \
-        --version "$CERT_MANAGER_VERSION" \
-        --set crds.enabled=true \
-        --wait
-else
-    info "Installing cert-manager $CERT_MANAGER_VERSION ..."
-    helm install cert-manager jetstack/cert-manager \
-        --namespace "$NAMESPACE" \
-        --create-namespace \
-        --version "$CERT_MANAGER_VERSION" \
-        --set crds.enabled=true \
-        --wait
+    if [ "$FORCE_INSTALL" != "true" ] && cert_manager_healthy; then
+        ok "cert-manager is already running and healthy"
+        kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null || true
+        echo ""
+        ok "Reusing existing cert-manager installation"
+        echo ""
+        info "Next step: ./scripts/03-install-strimzi-operator.sh"
+        exit 0
+    fi
+
+    if [ "$FORCE_INSTALL" != "true" ]; then
+        warn "cert-manager CRDs exist but pods are not healthy"
+        warn "Set CERT_MANAGER_FORCE_INSTALL=true to reinstall"
+        echo ""
+        kubectl get pods -n "$NAMESPACE" 2>/dev/null || true
+        echo ""
+        fail "cert-manager is unhealthy. Use CERT_MANAGER_FORCE_INSTALL=true to override."
+    fi
+
+    warn "CERT_MANAGER_FORCE_INSTALL=true — reinstalling cert-manager $CERT_MANAGER_VERSION"
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3 — Verify
+# Step 2 — Install cert-manager via kubectl apply
 # ---------------------------------------------------------------------------
-wait_for_pods "$NAMESPACE" "app.kubernetes.io/instance=cert-manager"
+info "Installing cert-manager $CERT_MANAGER_VERSION ..."
+kubectl apply -f "$MANIFEST_URL"
+
+# ---------------------------------------------------------------------------
+# Step 3 — Wait for deployments
+# ---------------------------------------------------------------------------
+info "Waiting for cert-manager deployments ..."
+kubectl wait --for=condition=available deployment --all \
+    -n "$NAMESPACE" --timeout=120s
+
+# ---------------------------------------------------------------------------
+# Step 4 — Verify
+# ---------------------------------------------------------------------------
 echo ""
 kubectl get pods -n "$NAMESPACE"
 echo ""
