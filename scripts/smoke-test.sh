@@ -99,23 +99,22 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-header "Cassandra (K8ssandra)"
+header "Cassandra (StatefulSet)"
 # ---------------------------------------------------------------------------
-cassandra_name="${RELEASE}-cassandra"
+cass_sts="${RELEASE}-cassandra"
 
-if kubectl get k8ssandraclusters "$cassandra_name" -n "$NAMESPACE" &>/dev/null; then
-    pass "K8ssandraCluster '$cassandra_name' exists"
-
-    cass_pods=$(kubectl get pods -n "$NAMESPACE" \
-        -l "app.kubernetes.io/managed-by=cassandra-operator" \
-        --no-headers 2>/dev/null | grep -c 'Running' || true)
-    if [ "$cass_pods" -gt 0 ]; then
-        pass "Cassandra nodes running: $cass_pods"
+if kubectl get statefulset "$cass_sts" -n "$NAMESPACE" &>/dev/null; then
+    desired=$(kubectl get statefulset "$cass_sts" -n "$NAMESPACE" \
+        -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    ready=$(kubectl get statefulset "$cass_sts" -n "$NAMESPACE" \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    if [ "${ready:-0}" = "$desired" ] && [ "$desired" != "0" ]; then
+        pass "Cassandra StatefulSet '$cass_sts': $ready/$desired ready"
     else
-        fail "No Cassandra pods running"
+        fail "Cassandra StatefulSet '$cass_sts': ${ready:-0}/$desired ready"
     fi
 else
-    fail "K8ssandraCluster '$cassandra_name' not found"
+    fail "Cassandra StatefulSet '$cass_sts' not found"
 fi
 
 # ---------------------------------------------------------------------------
@@ -173,12 +172,18 @@ else
     fail "Kafka bootstrap service not found"
 fi
 
-cass_svc=$(kubectl get svc -n "$NAMESPACE" -l "app.kubernetes.io/managed-by=cassandra-operator" \
-    --no-headers 2>/dev/null | head -1 | awk '{print $1}')
-if [ -n "$cass_svc" ]; then
+cass_svc="${RELEASE}-cassandra"
+if kubectl get svc "$cass_svc" -n "$NAMESPACE" &>/dev/null; then
     pass "Cassandra service exists: $cass_svc"
+    cass_ep=$(kubectl get endpoints "$cass_svc" -n "$NAMESPACE" \
+        -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
+    if [ -n "$cass_ep" ]; then
+        pass "Cassandra service has endpoints"
+    else
+        fail "Cassandra service has no endpoints"
+    fi
 else
-    warn "No Cassandra service found (may still be provisioning)"
+    fail "Cassandra service '$cass_svc' not found"
 fi
 
 # ---------------------------------------------------------------------------
