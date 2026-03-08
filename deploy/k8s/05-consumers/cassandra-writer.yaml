@@ -33,13 +33,6 @@ spec:
               value: cenotoo-kafka-kafka-bootstrap:9092
             - name: CASSANDRA_CONTACT_POINTS
               value: cenotoo-cassandra
-            - name: KAFKA_USERNAME
-              value: "cenotoo-consumer"
-            - name: KAFKA_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-consumer
-                  key: password
             - name: CASSANDRA_USERNAME
               valueFrom:
                 secretKeyRef:
