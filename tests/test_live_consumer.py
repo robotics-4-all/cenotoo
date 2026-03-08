@@ -27,6 +27,28 @@ class TestGetKafkaConsumer:
         assert "group.id" in config
         assert config["auto.offset.reset"] == "latest"
 
+    @patch("live_consumer.KAFKA_PASSWORD", "secret")
+    @patch("live_consumer.KAFKA_USERNAME", "testuser")
+    @patch("live_consumer.Consumer")
+    def test_creates_consumer_with_sasl(self, mock_consumer_cls):
+        get_kafka_consumer()
+
+        config = mock_consumer_cls.call_args[0][0]
+        assert config["security.protocol"] == "SASL_PLAINTEXT"
+        assert config["sasl.mechanism"] == "SCRAM-SHA-512"
+        assert config["sasl.username"] == "testuser"
+        assert config["sasl.password"] == "secret"
+
+    @patch("live_consumer.KAFKA_PASSWORD", "")
+    @patch("live_consumer.KAFKA_USERNAME", "")
+    @patch("live_consumer.Consumer")
+    def test_creates_consumer_without_sasl_when_no_credentials(self, mock_consumer_cls):
+        get_kafka_consumer()
+
+        config = mock_consumer_cls.call_args[0][0]
+        assert "security.protocol" not in config
+        assert "sasl.mechanism" not in config
+
 
 class TestConsumeAndBroadcast:
     def test_processes_message(self):
