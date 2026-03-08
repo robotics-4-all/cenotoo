@@ -1,177 +1,208 @@
-# **Cenotoo**
+<p align="center">
+  <img src=".github/assets/cenotoo_landing.png" alt="Cenotoo" width="100%" />
+</p>
 
-A distributed data streaming platform (Kafka + Cassandra + Flink) with dual deployment targets: Docker Compose for development and Kubernetes (k3s) for production.
+<h1 align="center">Cenotoo</h1>
+
+<p align="center">
+  <strong>Production-grade distributed data streaming platform.</strong><br/>
+  Ingest, process, and persist real-time data at scale — from development to production in minutes.
+</p>
+
+<p align="center">
+  <a href="#quick-start"><img src="https://img.shields.io/badge/get_started-blue?style=for-the-badge" alt="Get Started" /></a>
+  <a href="docs/k3s-setup.md"><img src="https://img.shields.io/badge/deployment_guide-teal?style=for-the-badge" alt="Deployment Guide" /></a>
+  <a href="#architecture"><img src="https://img.shields.io/badge/architecture-slategray?style=for-the-badge" alt="Architecture" /></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Kafka-KRaft-blue?logo=apachekafka&logoColor=white" alt="Kafka KRaft" />
+  <img src="https://img.shields.io/badge/Cassandra-4.x-1287B1?logo=apachecassandra&logoColor=white" alt="Cassandra" />
+  <img src="https://img.shields.io/badge/Flink-1.18-E6526F?logo=apacheflink&logoColor=white" alt="Flink" />
+  <img src="https://img.shields.io/badge/Kubernetes-k3s-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+</p>
 
 ---
 
-## **Table of Contents**
-1. [System Architecture](#system-architecture)
-2. [Prerequisites](#prerequisites)
-3. [Quick Start (Docker Compose)](#quick-start-docker-compose)
-4. [Kubernetes Deployment](#kubernetes-deployment)
-5. [Initializing Cassandra](#initializing-cassandra)
-6. [Development](#development)
-7. [Additional Notes](#additional-notes)
+## Why Cenotoo?
+
+Building a real-time data pipeline shouldn't require months of infrastructure work. Cenotoo packages battle-tested distributed systems into a single, opinionated platform that works out of the box.
+
+| | What you get |
+|---|---|
+| **Kafka (KRaft)** | High-throughput message streaming — no ZooKeeper, no operational overhead |
+| **Cassandra** | Horizontally scalable persistence with tunable consistency |
+| **Flink** | Stateful stream processing with exactly-once semantics |
+| **Dual Deploy** | Same stack, same code — Docker Compose for dev, Kubernetes for production |
+| **Security First** | SCRAM-SHA-512 auth on Kafka, PasswordAuthenticator on Cassandra, end-to-end |
+| **Observability** | Prometheus metrics, Grafana dashboards, alerting rules — built in |
 
 ---
 
-## **System Architecture**
+## Architecture
+
+```
+                         ┌─────────────────────────────────────────────┐
+                         │              Cenotoo Platform               │
+                         │                                             │
+  Producers ───────────► │  ┌─────────┐    ┌─────────┐    ┌─────────┐ │
+                         │  │  Kafka   │───►│  Flink  │───►│Cassandra│ │
+                         │  │ (KRaft)  │    │  (SQL)  │    │  (CQL)  │ │
+                         │  └────┬─────┘    └─────────┘    └────▲────┘ │
+                         │       │                              │      │
+                         │       └──── Consumer Bridge ─────────┘      │
+                         │              (Python)                       │
+                         │                                             │
+                         │  ┌──────────────────────────────────────┐   │
+                         │  │  Prometheus  ·  Grafana  ·  Alerts   │   │
+                         │  └──────────────────────────────────────┘   │
+                         └─────────────────────────────────────────────┘
+```
+
+### Deployment Targets
+
+| | Docker Compose | Kubernetes (k3s) |
+|---|---|---|
+| **Use case** | Development & testing | Staging & production |
+| **Kafka** | 2 brokers, KRaft | Strimzi operator, KafkaNodePools |
+| **Cassandra** | 2 nodes, local volumes | StatefulSet, persistent storage |
+| **Flink** | Single JobManager | Operator-managed, K8s-native HA |
+| **Monitoring** | — | Prometheus + Grafana stack |
+| **Setup time** | ~2 minutes | ~10 minutes |
+
+---
+
+## Quick Start
 
 ### Docker Compose (Development)
 
-- Kafka Broker 1 + Broker 2 (KRaft mode, no ZooKeeper)
-- Cassandra Node 1 + Node 2 (PasswordAuthenticator)
-- Flink JobManager + TaskManager (single instance, no HA)
-- Custom consumers: `kafka-to-cassandra`, `kafka-live-consumer`
+```bash
+# 1. Configure
+cp .env.example .env              # Edit with your node IPs
+python scripts/generate-cluster-id.py  # Copy output to .env
 
-All services include health checks. Cassandra 2 waits for Cassandra 1, TaskManager waits for JobManager.
+# 2. Build & Launch
+bash scripts/build-images.sh
+docker-compose up -d kafka1 cassandra1 jobmanager taskmanager  # Node 1
+docker-compose up -d kafka2 cassandra2                          # Node 2
+
+# 3. Initialize schema
+pip install -r requirements.txt
+python cassandra/create_cassandra_tables.py
+
+# 4. Verify
+docker ps  # All containers should show (healthy)
+```
 
 ### Kubernetes (Production)
 
-Deployed via raw K8s manifests (`deploy/k8s/`) on k3s:
-- **Strimzi** for Kafka (KRaft, SCRAM-SHA-512, KafkaNodePools)
-- **Cassandra StatefulSet** with explicit JVM heap control (PasswordAuthenticator)
-- **Flink Operator** for Flink (K8s-native HA, checkpoints, savepoints)
-- **Prometheus + Grafana** for observability (optional, PodMonitors, alerting rules, dashboards)
+Bootstrap scripts handle the full installation — operators, manifests, and verification:
+
+```bash
+sudo ./scripts/01-install-k3s.sh               # k3s cluster + Helm
+sudo ./scripts/02-install-cert-manager.sh      # TLS certificates
+sudo ./scripts/03-install-strimzi-operator.sh  # Kafka operator
+sudo ./scripts/05-install-flink-operator.sh    # Flink operator
+sudo ./scripts/06-install-monitoring.sh        # Prometheus + Grafana (optional)
+./scripts/build-images.sh --k3s               # Build + import images
+sudo ./scripts/07-deploy-cenotoo.sh            # Deploy platform
+```
+
+Every script is **idempotent** — safe to re-run at any time.
+
+```bash
+# Verify deployment
+sudo ./scripts/smoke-test.sh        # Pod health, CRDs, services
+sudo ./scripts/integration-test.sh  # End-to-end data flow
+```
+
+For the complete walkthrough, see the **[Deployment Guide](docs/k3s-setup.md)**.
 
 ---
 
-## **Prerequisites**
-
-### Docker Compose
-- **Docker** (>= 20.10)
-- **Docker Compose** (>= 1.29)
-- **Python** (>= 3.8) — for Cassandra schema init
-
-### Kubernetes (k3s)
-- **kubectl** + cluster access
-- Pre-installed operators: Strimzi, Flink Operator (cert-manager for webhooks)
-- Docker (for building consumer images)
-- Optional: kube-prometheus-stack (for monitoring)
-
----
-
-## **Quick Start (Docker Compose)**
-
-1. **Configure environment**:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your node IPs
-   ```
-
-2. **Generate Kafka Cluster ID** (once):
-   ```bash
-   python scripts/generate-cluster-id.py
-   # Copy the output to KAFKA_CLUSTER_ID in .env
-   ```
-
-3. **Build custom Docker images**:
-   ```bash
-   bash scripts/build-images.sh
-   ```
-
-4. **Start all services**:
-   ```bash
-   # Node 1
-   docker-compose up -d kafka1 cassandra1 jobmanager taskmanager
-
-   # Node 2
-   docker-compose up -d kafka2 cassandra2
-   ```
-
-5. **Initialize Cassandra schema** (after Cassandra is healthy):
-   ```bash
-   pip install -r requirements.txt
-   python cassandra/create_cassandra_tables.py
-   ```
-
-6. **Verify health**:
-   ```bash
-   docker ps    # All containers should show (healthy)
-   ```
+## Configuration
 
 ### Environment Variables
 
-| Variable | Description | Example |
+| Variable | Description | Default |
 |----------|-------------|---------|
-| `KAFKA_BROKER1_IP` | Kafka broker 1 IP | `192.168.1.101` |
-| `KAFKA_BROKER2_IP` | Kafka broker 2 IP | `192.168.1.102` |
-| `KAFKA_CLUSTER_ID` | Generated cluster ID | (from generate script) |
-| `KAFKA_USERNAME` | Kafka SASL username | `admin` |
-| `KAFKA_PASSWORD` | Kafka SASL password | (change from default) |
-| `CASSANDRA_SEEDS` | Comma-separated Cassandra IPs | `192.168.1.101,192.168.1.102` |
-| `CASSANDRA_BROADCAST_ADDRESS1` | Cassandra node 1 broadcast IP | `192.168.1.101` |
-| `CASSANDRA_BROADCAST_ADDRESS2` | Cassandra node 2 broadcast IP | `192.168.1.102` |
+| `KAFKA_BROKER1_IP` | Kafka broker 1 address | — |
+| `KAFKA_BROKER2_IP` | Kafka broker 2 address | — |
+| `KAFKA_CLUSTER_ID` | KRaft cluster identifier | Generated via script |
+| `KAFKA_USERNAME` | SASL authentication username | `admin` |
+| `KAFKA_PASSWORD` | SASL authentication password | — |
+| `CASSANDRA_SEEDS` | Cassandra contact points | — |
+| `CASSANDRA_DC` | Datacenter name | `datacenter1` |
+| `CASSANDRA_RF` | Replication factor | `2` |
+
+### Conventions
+
+| Convention | Pattern | Example |
+|------------|---------|---------|
+| Kafka topics | `{org}.{project}.{collection}` | `acme.iot.sensors` |
+| Cassandra keyspace | `{org}` | `acme` |
+| Cassandra tables | `{project}_{collection}` | `iot_sensors` |
+| Consumer groups | `{topic}_cassandra_writer` | `acme.iot.sensors_cassandra_writer` |
 
 ---
 
-## **Kubernetes Deployment (k3s)**
+## Project Structure
 
-Bootstrap scripts install all prerequisites and deploy Cenotoo on a k3s cluster. Run them in order:
-
-```bash
-sudo ./scripts/01-install-k3s.sh              # k3s + Helm
-sudo ./scripts/02-install-cert-manager.sh     # cert-manager (Flink webhooks)
-sudo ./scripts/03-install-strimzi-operator.sh # Strimzi Kafka operator
-sudo ./scripts/05-install-flink-operator.sh   # Flink Kubernetes operator
-sudo ./scripts/06-install-monitoring.sh       # kube-prometheus-stack (optional)
-./scripts/build-images.sh --k3s              # Build + import Docker images
-sudo ./scripts/07-deploy-cenotoo.sh           # Deploy Cenotoo manifests
 ```
-
-Each script is idempotent (safe to re-run) and waits for readiness before completing.
-Version overrides are supported via environment variables (e.g., `STRIMZI_VERSION=0.51.0`).
-
-After deployment, verify with the included test scripts:
-
-```bash
-sudo ./scripts/smoke-test.sh        # Health checks (pods, CRDs, services)
-sudo ./scripts/integration-test.sh  # E2E data flow (Kafka -> Cassandra)
-```
-
-For the full step-by-step guide, see [docs/k3s-setup.md](docs/k3s-setup.md).
-
----
-
-## **Initializing Cassandra**
-
-The schema uses `NetworkTopologyStrategy` (recommended even for single-DC deployments):
-
-```bash
-pip install -r requirements.txt
-
-# Optional: configure datacenter name and replication factor
-export CASSANDRA_DC=datacenter1   # default
-export CASSANDRA_RF=2             # default
-
-python cassandra/create_cassandra_tables.py
+centoo/
+├── kafka/                      # Kafka SASL/PLAIN auth configuration
+├── kafka-to-cassandra/         # Consumer: Kafka → Cassandra bridge
+├── kafka-live-consumer/        # Consumer: Kafka → stdout (debug)
+├── flink/                      # Flink image + SQL job definitions
+├── cassandra/                  # Schema initialization script
+├── deploy/
+│   └── k8s/                    # Raw Kubernetes manifests
+│       ├── 00-namespace.yaml
+│       ├── 01-secrets/
+│       ├── 02-kafka/           # Strimzi Kafka + KafkaUser CRs
+│       ├── 03-cassandra/       # StatefulSet + Service
+│       ├── 04-flink/           # FlinkDeployment CR + RBAC + PVC
+│       └── 05-consumers/       # Deployment manifests
+├── scripts/                    # Bootstrap, build, test scripts
+├── tests/                      # pytest suite (26 tests)
+├── docs/                       # Deployment guides
+└── docker-compose.yaml         # Development environment
 ```
 
 ---
 
-## **Development**
+## Development
 
 ```bash
-# Lint and format check
+# Lint & format
 ruff check . && ruff format --check .
 
-# Run tests
+# Run test suite
 pytest tests/ -v
 
-# Full CI check (lint + typecheck + test)
+# Full CI pipeline (mirrors GitHub Actions)
 ruff check . && ruff format --check . && pytest tests/ -v
 ```
 
 ---
 
-## **Additional Notes**
+## Tech Stack
 
-1. **Kafka uses KRaft mode** — no ZooKeeper dependency. Cluster ID must be generated once and shared across all brokers.
+| Component | Technology | Version |
+|-----------|------------|---------|
+| Message Streaming | Apache Kafka (KRaft) | 4.x |
+| Stream Processing | Apache Flink | 1.18 |
+| Persistence | Apache Cassandra | 4.x |
+| Container Orchestration | Kubernetes (k3s) | Latest |
+| Kafka Operator | Strimzi | 0.45+ |
+| Flink Operator | Apache Flink K8s Operator | 1.10+ |
+| Monitoring | Prometheus + Grafana | kube-prometheus-stack |
+| CI/CD | GitHub Actions | — |
+| Linting | Ruff | — |
 
-2. **Cassandra auth is enabled** — default credentials are `cassandra/cassandra`. Change after first boot.
+---
 
-3. **Flink in Docker Compose has no HA** — single JobManager for dev/test. Production uses K8s-native HA via the Flink Operator.
+## License
 
-4. **Health checks** — all Docker Compose services include health checks. Use `docker ps` to verify all are `(healthy)`.
-
-5. **Consumers** — `kafka-to-cassandra` bridges Kafka topics to Cassandra tables. `kafka-live-consumer` streams messages to stdout for debugging.
+This project is proprietary. All rights reserved.
