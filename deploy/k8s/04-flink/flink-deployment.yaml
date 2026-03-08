@@ -1,0 +1,50 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: cenotoo-flink
+  labels:
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  image: "custom-flink-image:latest"
+  imagePullPolicy: IfNotPresent
+  flinkVersion: v1_18
+  mode: native
+  serviceAccount: flink
+  flinkConfiguration:
+    taskmanager.numberOfTaskSlots: "4"
+    state.savepoints.dir: file:///flink-data/savepoints
+    state.checkpoints.dir: file:///flink-data/checkpoints
+    high-availability.type: kubernetes
+    high-availability.storageDir: file:///flink-data/ha
+  jobManager:
+    replicas: 1
+    resource:
+      cpu: "1"
+      memory: "2048m"
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - name: flink-data
+                mountPath: /flink-data
+        volumes:
+          - name: flink-data
+            persistentVolumeClaim:
+              claimName: cenotoo-flink-data
+  taskManager:
+    replicas: 2
+    resource:
+      cpu: "2"
+      memory: "4096m"
+    podTemplate:
+      spec:
+        containers:
+          - name: flink-main-container
+            volumeMounts:
+              - name: flink-data
+                mountPath: /flink-data
+        volumes:
+          - name: flink-data
+            persistentVolumeClaim:
+              claimName: cenotoo-flink-data

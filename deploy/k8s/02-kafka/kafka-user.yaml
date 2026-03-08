@@ -1,0 +1,39 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: cenotoo-consumer
+  labels:
+    strimzi.io/cluster: cenotoo-kafka
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: "*"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+        host: "*"
+      - resource:
+          type: group
+          name: "*"
+          patternType: literal
+        operations:
+          - Read
+          - Describe
+        host: "*"
+      - resource:
+          type: topic
+          name: "*"
+          patternType: literal
+        operations:
+          - Write
+          - Create
+          - Delete
+          - Describe
+        host: "*"

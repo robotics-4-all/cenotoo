@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cenotoo-live-consumer
+  labels:
+    app.kubernetes.io/component: live-consumer
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: live-consumer
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: live-consumer
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: live-consumer
+          image: kafka-live-consumer:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: COLLECTION_NAME
+              value: "sensors"
+            - name: PROJECT_NAME
+              value: "demo"
+            - name: ORGANIZATION_NAME
+              value: "cenotoo"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: cenotoo-kafka-kafka-bootstrap:9092
+            - name: KAFKA_USERNAME
+              value: "cenotoo-consumer"
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-consumer
+                  key: password
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
