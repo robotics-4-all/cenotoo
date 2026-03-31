@@ -136,8 +136,27 @@ for tbl in "${EXPECTED[@]}"; do
     fi
 done
 
-info "Seeding admin user ..."
+ORG_ID="00000000-0000-0000-0000-000000000001"
 
+info "Seeding organization ..."
+EXISTING_ORG=$(echo "SELECT id FROM metadata.organization WHERE id=$ORG_ID;" | run_cql 2>/dev/null || echo "")
+if ! echo "$EXISTING_ORG" | grep -q "(0 rows)"; then
+    ok "Organization already exists — skipping"
+else
+    echo ""
+    info "No organization found. Set up the organization."
+    echo ""
+
+    printf "  Organization name [cenotoo]: "
+    read -r _org_input
+    ORG_NAME="${_org_input:-cenotoo}"
+
+    printf "INSERT INTO metadata.organization (id, organization_name, description, creation_date, tags) VALUES ($ORG_ID, '%s', '', toTimestamp(now()), []);\n" \
+        "$ORG_NAME" | run_cql
+    ok "Organization created: $ORG_NAME"
+fi
+
+info "Seeding admin user ..."
 EXISTING=$(echo "SELECT id FROM metadata.user LIMIT 1 ALLOW FILTERING;" | run_cql 2>/dev/null || echo "")
 if ! echo "$EXISTING" | grep -q "(0 rows)"; then
     ok "Admin user already exists — skipping"
@@ -159,7 +178,6 @@ else
         [ -z "$ADMIN_PASS" ] && warn "Password cannot be empty"
     done
 
-    ORG_ID="00000000-0000-0000-0000-000000000001"
     ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
     HASHED=$(python3 -c "
 import bcrypt, sys
