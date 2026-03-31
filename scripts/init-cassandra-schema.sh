@@ -120,37 +120,43 @@ done
 
 info "Seeding admin user ..."
 
-if kubectl get secret cenotoo-api-secrets -n "$NAMESPACE" &>/dev/null; then
-    ADMIN_USER=$(kubectl get secret cenotoo-api-secrets -n "$NAMESPACE" -o jsonpath='{.data.admin-username}' | base64 -d)
-    ADMIN_PASS=$(kubectl get secret cenotoo-api-secrets -n "$NAMESPACE" -o jsonpath='{.data.admin-password}' | base64 -d)
-    ORG_ID="00000000-0000-0000-0000-000000000001"
+EXISTING=$(echo "SELECT id FROM metadata.user LIMIT 1 ALLOW FILTERING;" | run_cql 2>/dev/null || echo "")
+if ! echo "$EXISTING" | grep -q "(0 rows)"; then
+    ok "Admin user already exists — skipping"
+else
+    echo ""
+    info "No users found. Create the initial admin account."
+    echo ""
 
-    EXISTING=$(printf "SELECT id FROM metadata.user WHERE username='%s' LIMIT 1 ALLOW FILTERING;\n" "$ADMIN_USER" | run_cql)
-    if echo "$EXISTING" | grep -q "rows)"; then
-        ROW_COUNT=$(echo "$EXISTING" | grep -oP '\((\d+) rows\)' | grep -oP '\d+')
-        if [ "${ROW_COUNT:-0}" -gt 0 ]; then
-            ok "Admin user already exists: $ADMIN_USER"
-        else
-            ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
-            HASHED=$(python3 -c "
+    ADMIN_USER="admin"
+    printf "  Admin username [admin]: "
+    read -r _input
+    ADMIN_USER="${_input:-admin}"
+
+    ADMIN_PASS=""
+    while [ -z "$ADMIN_PASS" ]; do
+        printf "  Admin password: "
+        read -rs ADMIN_PASS
+        echo ""
+        [ -z "$ADMIN_PASS" ] && warn "Password cannot be empty"
+    done
+
+    ORG_ID="00000000-0000-0000-0000-000000000001"
+    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
+    HASHED=$(python3 -c "
 import bcrypt, sys
 h = bcrypt.hashpw(sys.argv[1].encode(), bcrypt.gensalt()).decode()
 print(h)
 " "$ADMIN_PASS" 2>/dev/null)
 
-            if [ -n "$HASHED" ] && [ -n "$ADMIN_UUID" ]; then
-                printf "INSERT INTO metadata.user (id, organization_id, username, password) VALUES (%s, %s, '%s', '%s');\n" \
-                    "$ADMIN_UUID" "$ORG_ID" "$ADMIN_USER" "$HASHED" | run_cql
-                ok "Admin user created: $ADMIN_USER"
-            else
-                warn "Python bcrypt not available — install with: pip install bcrypt"
-                warn "Then re-run this script, or seed manually via the API"
-            fi
-        fi
+    if [ -n "$HASHED" ] && [ -n "$ADMIN_UUID" ]; then
+        printf "INSERT INTO metadata.user (id, organization_id, username, password) VALUES (%s, %s, '%s', '%s');\n" \
+            "$ADMIN_UUID" "$ORG_ID" "$ADMIN_USER" "$HASHED" | run_cql
+        ok "Admin user created: $ADMIN_USER"
+    else
+        warn "Python bcrypt not available — install with: pip install bcrypt"
+        warn "Then re-run this script to seed the admin user"
     fi
-else
-    warn "cenotoo-api-secrets not found — skipping admin user seeding"
-    warn "Run: bash scripts/configure-secrets.sh && re-run this script"
 fi
 
 echo ""

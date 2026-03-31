@@ -55,16 +55,6 @@ spec:
                 secretKeyRef:
                   name: cenotoo-api-secrets
                   key: api-key-secret
-            - name: ADMIN_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-api-secrets
-                  key: admin-username
-            - name: ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-api-secrets
-                  key: admin-password
             - name: ORGANIZATION_ID
               value: "00000000-0000-0000-0000-000000000001"
             - name: CORS_ORIGINS

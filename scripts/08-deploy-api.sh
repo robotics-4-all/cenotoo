@@ -31,7 +31,7 @@ info()    { echo -e "  ${BLUE}▸${RESET} $*"; }
 ok()      { echo -e "  ${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "  ${YELLOW}⚠${RESET} $*"; }
 fail()    { echo -e "  ${RED}✗${RESET} $*"; exit 1; }
-step()    { echo -e "\n${BOLD}[$1/6]${RESET} $2\n"; }
+step()    { echo -e "\n${BOLD}[$1/5]${RESET} $2\n"; }
 dimtext() { echo -e "  ${DIM}$*${RESET}"; }
 b64()     { printf '%s' "$1" | base64 -w0; }
 
@@ -82,20 +82,11 @@ ok "API source: $API_SOURCE"
 [ -f "$API_SOURCE/Dockerfile" ] || fail "Dockerfile not found in $API_SOURCE"
 ok "Dockerfile found"
 
-# ── Step 2: Configure credentials ────────────────────────────────────────────
-step 2 "Configure credentials"
+# ── Step 2: Configure JWT/API key secrets ────────────────────────────────────
+step 2 "Configure secrets"
 
-echo -e "  ${DIM}Set credentials for the Cenotoo API.${RESET}"
-echo -e "  ${DIM}Press Enter to accept defaults or auto-generate secrets.${RESET}"
+echo -e "  ${DIM}Press Enter to auto-generate secrets.${RESET}"
 echo ""
-
-prompt ADMIN_USERNAME "Admin username:" "admin"
-
-ADMIN_PASSWORD=""
-while [ -z "$ADMIN_PASSWORD" ]; do
-    prompt ADMIN_PASSWORD "Admin password:" "" true
-    [ -z "$ADMIN_PASSWORD" ] && warn "Password cannot be empty"
-done
 
 prompt JWT_SECRET "JWT secret key:" "" true
 if [ -z "$JWT_SECRET" ]; then
@@ -124,8 +115,6 @@ type: Opaque
 data:
   jwt-secret-key: $(b64 "$JWT_SECRET")
   api-key-secret: $(b64 "$API_KEY_SECRET")
-  admin-username: $(b64 "$ADMIN_USERNAME")
-  admin-password: $(b64 "$ADMIN_PASSWORD")
 EOF
 
 ok "Wrote api-secrets.yaml"
@@ -192,8 +181,8 @@ else
     warn "API not ready after ${TIMEOUT}s — check: kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=api"
 fi
 
-# ── Step 6: Done ─────────────────────────────────────────────────────────────
-step 6 "Done"
+# ── Step 5: Done ─────────────────────────────────────────────────────────────
+step 5 "Done"
 
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
 
