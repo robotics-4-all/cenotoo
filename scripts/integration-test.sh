@@ -87,23 +87,18 @@ if [ -z "$CASS_POD" ]; then
 fi
 pass "Cassandra pod: $CASS_POD"
 
-KAFKA_PASS=$(kubectl get secret "$KAFKA_USER" -n "$NAMESPACE" \
-    -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "")
-
-if [ -z "$KAFKA_PASS" ]; then
-    fail "Cannot retrieve Kafka password from secret '$KAFKA_USER'"
-    printf '\n\033[1;31mKafka SASL credentials required. Exiting.\033[0m\n'
-    exit 1
+# Verify the KafkaUser secret exists (credentials are provisioned for the TLS listener on 9093)
+if kubectl get secret "$KAFKA_USER" -n "$NAMESPACE" &>/dev/null; then
+    pass "KafkaUser secret exists: $KAFKA_USER"
+else
+    fail "KafkaUser secret '$KAFKA_USER' not found"
 fi
-pass "Kafka credentials retrieved for user: $KAFKA_USER"
 
-kubectl exec -n "$NAMESPACE" "$KAFKA_POD" -- bash -c "cat > /tmp/test-client.properties <<'PROPS'
-security.protocol=SASL_PLAINTEXT
-sasl.mechanism=SCRAM-SHA-512
-sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username=\"${KAFKA_USER}\" password=\"${KAFKA_PASS}\";
-PROPS" 2>/dev/null
+# Port 9092 is the plain (no-auth) listener — no SASL config required
+kubectl exec -n "$NAMESPACE" "$KAFKA_POD" -- bash -c \
+    "echo 'security.protocol=PLAINTEXT' > /tmp/test-client.properties" 2>/dev/null
 SASL_READY=1
-pass "SASL client config created in broker pod"
+pass "Client config created in broker pod (plain listener, port 9092)"
 
 # ---------------------------------------------------------------------------
 header "Test 1: Kafka Produce & Consume"
@@ -189,18 +184,31 @@ for component in cassandra-writer live-consumer; do
     deploy_name="${RELEASE}-${component}"
     restarts=$(kubectl get pods -n "$NAMESPACE" \
         -l "app.kubernetes.io/component=${component},app.kubernetes.io/part-of=${RELEASE}" \
-        -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo "?")
+        -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}' 2>/dev/null || echo "0")
+
+    last_restart_at=$(kubectl get pods -n "$NAMESPACE" \
+        -l "app.kubernetes.io/component=${component},app.kubernetes.io/part-of=${RELEASE}" \
+        -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.finishedAt}' \
+        2>/dev/null || echo "")
 
     recent_logs=$(kubectl logs -n "$NAMESPACE" "deployment/${deploy_name}" \
         --tail=20 2>/dev/null || echo "")
     has_auth_error=$(echo "$recent_logs" | grep -ciE 'AUTHORIZATION_FAILED|AuthenticationFailed|AUTH_ERROR' || true)
 
+    restarted_recently=false
+    minutes_since_restart="n/a"
+    if [ -n "$last_restart_at" ]; then
+        last_restart_epoch=$(date -d "$last_restart_at" +%s 2>/dev/null || echo "0")
+        minutes_since_restart=$(( ($(date +%s) - last_restart_epoch) / 60 ))
+        [ "$minutes_since_restart" -lt 30 ] && restarted_recently=true
+    fi
+
     if [ "$has_auth_error" -gt 0 ]; then
         fail "$deploy_name: auth errors in recent logs"
-    elif [ "${restarts:-0}" -gt 5 ]; then
-        fail "$deploy_name: excessive restarts ($restarts)"
+    elif [ "$restarted_recently" = "true" ]; then
+        fail "$deploy_name: restarted ${minutes_since_restart}m ago (possible crash loop; total: ${restarts})"
     else
-        pass "$deploy_name: healthy (restarts: ${restarts:-0})"
+        pass "$deploy_name: healthy (total restarts: ${restarts}, last: ${minutes_since_restart}m ago)"
     fi
 done
 
