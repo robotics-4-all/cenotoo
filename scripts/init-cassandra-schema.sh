@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS metadata.user (
     id UUID PRIMARY KEY,
     username TEXT,
     password TEXT,
+    role TEXT,
     organization_id UUID
 );
 
@@ -150,9 +151,9 @@ print(h)
 " "$ADMIN_PASS" 2>/dev/null)
 
     if [ -n "$HASHED" ] && [ -n "$ADMIN_UUID" ]; then
-        printf "INSERT INTO metadata.user (id, organization_id, username, password) VALUES (%s, %s, '%s', '%s');\n" \
+        printf "INSERT INTO metadata.user (id, organization_id, username, password, role) VALUES (%s, %s, '%s', '%s', 'superadmin');\n" \
             "$ADMIN_UUID" "$ORG_ID" "$ADMIN_USER" "$HASHED" | run_cql
-        ok "Admin user created: $ADMIN_USER"
+        ok "Admin user created: $ADMIN_USER (role: superadmin)"
     else
         warn "Python bcrypt not available — install with: pip install bcrypt"
         warn "Then re-run this script to seed the admin user"
