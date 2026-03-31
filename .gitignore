@@ -29,3 +29,5 @@ deploy/k8s/01-secrets/cassandra-superuser.yaml
 cassandra1_data/
 cassandra2_data/
 recovery/
+
+.envsitter
