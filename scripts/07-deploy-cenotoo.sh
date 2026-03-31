@@ -68,7 +68,7 @@ done
 REQUIRED_IMAGES=("kafka-cassandra-consumer" "kafka-live-consumer" "custom-flink-image" "cenotoo-api")
 images_missing=false
 for img in "${REQUIRED_IMAGES[@]}"; do
-    if sudo k3s ctr images list 2>/dev/null | grep -q "$img"; then
+    if k3s ctr images list 2>/dev/null | grep -q "$img"; then
         ok "Image found: $img"
     else
         warn "Image not found: $img"
