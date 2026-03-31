@@ -106,7 +106,7 @@ sudo ./scripts/02-install-cert-manager.sh      # TLS certificates
 sudo ./scripts/03-install-strimzi-operator.sh  # Kafka operator
 sudo ./scripts/05-install-flink-operator.sh    # Flink operator
 sudo ./scripts/06-install-monitoring.sh        # Prometheus + Grafana (optional)
-./scripts/build-images.sh --k3s               # Build + import images
+./scripts/build-images.sh --k3s               # Build + import images (requires cenotoo-api at ../cenotoo-api)
 sudo ./scripts/07-deploy-cenotoo.sh            # Deploy platform
 ```
 
@@ -114,8 +114,30 @@ Every script is **idempotent** — safe to re-run at any time.
 
 ```bash
 # Verify deployment
-sudo ./scripts/smoke-test.sh        # Pod health, CRDs, services
+./scripts/smoke-test.sh             # Pod health, CRDs, services
 sudo ./scripts/integration-test.sh  # End-to-end data flow
+```
+
+### API Access
+
+After deployment the REST API is available on **NodePort 30080**:
+
+```bash
+NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+curl http://${NODE_IP}:30080/health   # liveness
+curl http://${NODE_IP}:30080/docs     # Swagger UI
+```
+
+To (re)deploy the API with custom credentials:
+
+```bash
+./scripts/08-deploy-api.sh   # interactive: credentials → build → import → deploy
+```
+
+To expose the API publicly with a domain and optional TLS (Let's Encrypt):
+
+```bash
+sudo ./scripts/09-expose-api.sh
 ```
 
 For the complete walkthrough, see the **[Deployment Guide](docs/k3s-setup.md)**.
