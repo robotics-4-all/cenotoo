@@ -108,6 +108,23 @@ EOF
 
 ok "Schema applied"
 
+info "Migrating schema ..."
+ROLE_COL=$(echo "SELECT column_name FROM system_schema.columns WHERE keyspace_name='metadata' AND table_name='user' AND column_name='role';" | run_cql 2>/dev/null || echo "")
+if echo "$ROLE_COL" | grep -q "(0 rows)"; then
+    echo "ALTER TABLE metadata.user ADD role TEXT;" | run_cql >/dev/null
+    ok "Added role column to metadata.user"
+    EXISTING_IDS=$(echo "SELECT id FROM metadata.user ALLOW FILTERING;" | run_cql 2>/dev/null \
+        | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || true)
+    if [ -n "$EXISTING_IDS" ]; then
+        while IFS= read -r uid; do
+            echo "UPDATE metadata.user SET role = 'superadmin' WHERE id = $uid;" | run_cql >/dev/null
+        done <<< "$EXISTING_IDS"
+        ok "Set superadmin role for existing users"
+    fi
+else
+    ok "Schema up to date"
+fi
+
 info "Verifying ..."
 TABLES=$(echo "SELECT table_name FROM system_schema.tables WHERE keyspace_name='metadata';" | run_cql)
 EXPECTED=("user" "organization" "project" "collection" "api_keys" "revoked_tokens")
