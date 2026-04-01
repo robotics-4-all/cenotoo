@@ -103,6 +103,21 @@ session.execute("""
     );
 """)
 
+session.execute("""
+    CREATE TABLE IF NOT EXISTS flink_jobs (
+        id UUID PRIMARY KEY,
+        collection_id UUID,
+        project_id UUID,
+        session_handle TEXT,
+        operation_handle TEXT,
+        job_type TEXT,
+        config TEXT,
+        sink_topic TEXT,
+        status TEXT,
+        created_at TIMESTAMP
+    );
+""")
+
 session.shutdown()
 cluster.shutdown()
 

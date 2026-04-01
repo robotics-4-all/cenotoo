@@ -16,6 +16,8 @@ spec:
     state.checkpoints.dir: file:///flink-data/checkpoints
     high-availability.type: kubernetes
     high-availability.storageDir: file:///flink-data/ha
+    sql-gateway.endpoint.rest.address: "0.0.0.0"
+    sql-gateway.endpoint.rest.port: "8083"
   jobManager:
     replicas: 1
     resource:
@@ -28,6 +30,35 @@ spec:
             volumeMounts:
               - name: flink-data
                 mountPath: /flink-data
+          - name: sql-gateway
+            image: "custom-flink-image:latest"
+            imagePullPolicy: IfNotPresent
+            command: ["/opt/flink/bin/sql-gateway.sh", "start-foreground"]
+            env:
+              - name: FLINK_CONF_DIR
+                value: /opt/flink/conf
+            ports:
+              - name: sql-gateway
+                containerPort: 8083
+                protocol: TCP
+            volumeMounts:
+              - name: flink-data
+                mountPath: /flink-data
+              - name: flink-config-volume
+                mountPath: /opt/flink/conf
+            readinessProbe:
+              httpGet:
+                path: /v1/info
+                port: 8083
+              initialDelaySeconds: 10
+              periodSeconds: 5
+            resources:
+              requests:
+                cpu: "0.25"
+                memory: "512Mi"
+              limits:
+                cpu: "0.5"
+                memory: "1024Mi"
         volumes:
           - name: flink-data
             persistentVolumeClaim:

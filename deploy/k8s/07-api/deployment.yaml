@@ -59,6 +59,10 @@ spec:
               value: "00000000-0000-0000-0000-000000000001"
             - name: CORS_ORIGINS
               value: "*"
+            - name: FLINK_SQL_GATEWAY_URL
+              value: "http://cenotoo-flink-sql-gateway.cenotoo.svc.cluster.local:8083"
+            - name: JWT_EXPIRATION_MINUTES
+              value: "1440"
             - name: OTLP_SERVICE_NAME
               value: "cenotoo-api"
           livenessProbe:
