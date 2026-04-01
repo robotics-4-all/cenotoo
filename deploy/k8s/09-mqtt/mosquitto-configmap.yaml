@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cenotoo-mosquitto-config
+  labels:
+    app.kubernetes.io/component: mqtt-broker
+    app.kubernetes.io/part-of: cenotoo
+data:
+  mosquitto.conf: |
+    listener 1883
+
+    # mosquitto-go-auth HTTP backend — calls cenotoo-api for auth + ACL
+    auth_plugin /mosquitto/go-auth.so
+
+    auth_opt_backends http
+    auth_opt_cache true
+    auth_opt_auth_cache_seconds 30
+    auth_opt_acl_cache_seconds 30
+
+    auth_opt_http_host localhost
+    auth_opt_http_port 8080
+    auth_opt_http_getuser_uri /auth/user
+    auth_opt_http_aclcheck_uri /auth/acl
+    auth_opt_http_response_mode status
+    auth_opt_http_params_mode json
+
+    persistence true
+    persistence_location /mosquitto/data/
+    log_dest stdout
+    log_type all

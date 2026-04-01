@@ -151,6 +151,69 @@ services:
       - flink-data:/opt/flink/checkpoints
       - flink-savepoints:/opt/flink/savepoints
 
+  mqtt-auth:
+    image: mqtt-auth:latest
+    container_name: mqtt-auth
+    restart: always
+    depends_on:
+      cassandra1:
+        condition: service_healthy
+    environment:
+      CASSANDRA_CONTACT_POINTS: cassandra1
+      CASSANDRA_PORT: 9042
+      CASSANDRA_USERNAME: ${CASSANDRA_USERNAME:-cassandra}
+      CASSANDRA_PASSWORD: ${CASSANDRA_PASSWORD:-cassandra}
+      ORGANIZATION_ID: ${ORGANIZATION_ID:-}
+      MQTT_BRIDGE_USERNAME: ${MQTT_BRIDGE_USERNAME:-cenotoo-bridge}
+      MQTT_BRIDGE_PASSWORD: ${MQTT_BRIDGE_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  mosquitto:
+    image: iegomez/mosquitto-go-auth:latest
+    container_name: mosquitto
+    restart: always
+    depends_on:
+      mqtt-auth:
+        condition: service_healthy
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/etc/mosquitto/conf.d/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -t '$$SYS/#' -C 1 --quiet -u ${MQTT_BRIDGE_USERNAME:-cenotoo-bridge} -P ${MQTT_BRIDGE_PASSWORD:-} 2>/dev/null || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mqtt-bridge:
+    image: mqtt-bridge:latest
+    container_name: mqtt-bridge
+    restart: always
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      kafka1:
+        condition: service_healthy
+    environment:
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: 1883
+      MQTT_USERNAME: ${MQTT_BRIDGE_USERNAME:-cenotoo-bridge}
+      MQTT_PASSWORD: ${MQTT_BRIDGE_PASSWORD:-}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-cenotoo-bridge}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BROKER1_IP}:59092,${KAFKA_BROKER2_IP}:59192
+      KAFKA_USERNAME: ${KAFKA_USERNAME}
+      KAFKA_PASSWORD: ${KAFKA_PASSWORD}
+      KAFKA_SASL_MECHANISM: ${KAFKA_SASL_MECHANISM:-PLAIN}
+      KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL:-SASL_PLAINTEXT}
+
 volumes:
   flink-data: {}
   flink-savepoints: {}
+  mosquitto_data: {}

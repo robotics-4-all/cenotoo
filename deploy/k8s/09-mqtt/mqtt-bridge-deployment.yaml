@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cenotoo-mqtt-bridge
+  labels:
+    app.kubernetes.io/component: mqtt-bridge
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mqtt-bridge
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mqtt-bridge
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: mqtt-bridge
+          image: mqtt-bridge:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MQTT_BROKER_HOST
+              value: cenotoo-mosquitto
+            - name: MQTT_BROKER_PORT
+              value: "1883"
+            - name: MQTT_CLIENT_ID
+              value: cenotoo-bridge
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-mqtt-credentials
+                  key: username
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-mqtt-credentials
+                  key: password
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: cenotoo-kafka-kafka-bootstrap:9092
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-kafka-credentials
+                  key: username
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-kafka-credentials
+                  key: password
+            - name: KAFKA_SASL_MECHANISM
+              value: SCRAM-SHA-512
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: SASL_PLAINTEXT
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

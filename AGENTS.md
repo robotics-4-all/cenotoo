@@ -25,6 +25,12 @@ centoo/
 │   ├── consumer.py             # Polls Kafka latest offset, logs messages
 │   ├── Dockerfile
 │   └── requirements.txt        # confluent_kafka only
+├── mqtt-bridge/                # MQTT ingestion plugin: Mosquitto→Kafka bridge
+│   ├── mqtt_bridge.py          # Subscribes to # wildcard, wraps payloads in JSON envelope, produces to Kafka
+│   ├── Dockerfile
+│   └── requirements.txt        # paho-mqtt, confluent_kafka
+├── mosquitto/
+│   └── mosquitto.conf          # Mosquitto broker config (dev: allow_anonymous; prod: passwd auth)
 ├── flink/
 │   ├── Dockerfile              # flink:1.18.1 + PyFlink 1.18.1 + SQL Kafka connector JAR
 │   └── sql/
@@ -39,13 +45,14 @@ centoo/
 │   ├── 05-install-flink-operator.sh    # Flink Kubernetes operator
 │   ├── 06-install-monitoring.sh        # kube-prometheus-stack (optional)
 │   ├── 07-deploy-cenotoo.sh    # Deploy Cenotoo Helm chart on k3s
-│   ├── build-images.sh         # Builds 3 Docker images (flink, kafka-to-cassandra, kafka-live-consumer)
+│   ├── build-images.sh         # Builds 4 Docker images (flink, kafka-to-cassandra, kafka-live-consumer, mqtt-bridge)
 │   └── generate-cluster-id.py  # UUID→base64 Kafka cluster ID generator
-├── tests/                      # pytest test suite (21 tests)
+├── tests/                      # pytest test suite (48 tests)
 │   ├── conftest.py             # Shared mock fixtures (Kafka, Cassandra)
 │   ├── test_cassandra_writer.py
 │   ├── test_live_consumer.py
-│   └── test_cluster_id.py
+│   ├── test_cluster_id.py
+│   └── test_mqtt_bridge.py
 ├── deploy/
 │   └── helm/
 │       └── cenotoo/                # Helm chart for Kubernetes deployment

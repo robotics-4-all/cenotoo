@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cenotoo-mosquitto
+  labels:
+    app.kubernetes.io/component: mqtt-broker
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  serviceName: cenotoo-mosquitto
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mqtt-broker
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mqtt-broker
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: mqtt-auth
+          image: mqtt-auth:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: CASSANDRA_CONTACT_POINTS
+              value: cenotoo-cassandra
+            - name: CASSANDRA_PORT
+              value: "9042"
+            - name: CASSANDRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-cassandra-superuser
+                  key: username
+            - name: CASSANDRA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-cassandra-superuser
+                  key: password
+            - name: ORGANIZATION_ID
+              value: "00000000-0000-0000-0000-000000000001"
+            - name: MQTT_BRIDGE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-mqtt-credentials
+                  key: username
+            - name: MQTT_BRIDGE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-mqtt-credentials
+                  key: password
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+        - name: mosquitto
+          image: iegomez/mosquitto-go-auth:latest
+          ports:
+            - containerPort: 1883
+              name: mqtt
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mosquitto/conf.d/mosquitto.conf
+              subPath: mosquitto.conf
+            - name: data
+              mountPath: /mosquitto/data
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: cenotoo-mosquitto-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

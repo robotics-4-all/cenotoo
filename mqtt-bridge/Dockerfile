@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY . /app
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV MQTT_BROKER_HOST=mosquitto
+ENV MQTT_BROKER_PORT=1883
+ENV MQTT_CLIENT_ID=cenotoo-bridge
+ENV MQTT_KEEPALIVE=60
+ENV KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+ENV KAFKA_SASL_MECHANISM=PLAIN
+ENV KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT
+
+CMD ["python", "mqtt_bridge.py"]

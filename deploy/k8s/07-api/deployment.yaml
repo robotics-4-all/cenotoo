@@ -65,6 +65,7 @@ spec:
               value: "1440"
             - name: OTLP_SERVICE_NAME
               value: "cenotoo-api"
+
           livenessProbe:
             httpGet:
               path: /health
