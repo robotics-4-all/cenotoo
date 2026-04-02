@@ -118,16 +118,23 @@ if [ -z "$API_SVC" ]; then
     exit 1
 fi
 
+pkill -f "kubectl port-forward.*${API_PORT}:8000" 2>/dev/null || true
+sleep 1
+
 info "Port-forwarding API service $API_SVC → localhost:${API_PORT} ..."
 kubectl port-forward "svc/${API_SVC}" "${API_PORT}:8000" -n "$NAMESPACE" &>/dev/null &
 PF_API_PID=$!
-sleep 3
 
-if kill -0 "$PF_API_PID" 2>/dev/null; then
-    pass "API port-forward active (pid $PF_API_PID)"
-else
-    fail "API port-forward failed"
-fi
+_elapsed=0
+until curl -s "http://localhost:${API_PORT}/health" &>/dev/null; do
+    sleep 1
+    _elapsed=$((_elapsed + 1))
+    if [ "$_elapsed" -ge 15 ]; then
+        fail "API not responding on port ${API_PORT} after 15s"
+        exit 1
+    fi
+done
+pass "API port-forward active and healthy (pid $PF_API_PID)"
 
 # ---------------------------------------------------------------------------
 header "API Authentication & Setup"
@@ -174,7 +181,9 @@ COLL_HTTP=$(_api POST "${API_BASE}/projects/${PROJECT_ID}/collections" \
     -H "Content-Type: application/json" \
     -d "{\"name\": \"${TEST_COLLECTION}\", \"description\": \"Device test collection\", \"tags\": [\"test\"], \"collection_schema\": {\"value\": \"float\"}}")
 if [ "$COLL_HTTP" = "200" ] || [ "$COLL_HTTP" = "201" ]; then
-    COLLECTION_ID=$(jq -r '.collection_id // .id // ""' "$_RESP_FILE" 2>/dev/null || echo "")
+    COLLECTION_ID=$(curl -s "${API_BASE}/projects/${PROJECT_ID}/collections" \
+        -H "Authorization: Bearer ${API_TOKEN}" \
+        | jq -r --arg name "$TEST_COLLECTION" '.items[] | select(.collection_name==$name) | .collection_id // ""' 2>/dev/null || echo "")
     pass "Test collection created (HTTP $COLL_HTTP)"
 else
     fail "Collection creation failed (HTTP $COLL_HTTP)"

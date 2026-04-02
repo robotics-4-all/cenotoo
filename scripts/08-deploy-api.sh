@@ -31,7 +31,7 @@ info()    { echo -e "  ${BLUE}▸${RESET} $*"; }
 ok()      { echo -e "  ${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "  ${YELLOW}⚠${RESET} $*"; }
 fail()    { echo -e "  ${RED}✗${RESET} $*"; exit 1; }
-step()    { echo -e "\n${BOLD}[$1/5]${RESET} $2\n"; }
+step()    { echo -e "\n${BOLD}[$1/6]${RESET} $2\n"; }
 dimtext() { echo -e "  ${DIM}$*${RESET}"; }
 b64()     { printf '%s' "$1" | base64 -w0; }
 
@@ -153,8 +153,14 @@ done; then
 fi
 ok "Imported into k3s containerd"
 
-# ── Step 5: Deploy ───────────────────────────────────────────────────────────
-step 5 "Deploy to k3s"
+# ── Step 5: Migrate Cassandra schema ─────────────────────────────────────────
+step 5 "Migrate Cassandra schema"
+
+info "Running schema migration (safe to re-run — all statements are IF NOT EXISTS) ..."
+"$SCRIPT_DIR/init-cassandra-schema.sh"
+
+# ── Step 6: Deploy ───────────────────────────────────────────────────────────
+step 6 "Deploy to k3s"
 
 info "Applying API secrets ..."
 kubectl apply -f "$SECRETS_DIR/api-secrets.yaml" -n "$NAMESPACE"
@@ -181,8 +187,8 @@ else
     warn "API not ready after ${TIMEOUT}s — check: kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=api"
 fi
 
-# ── Step 5: Done ─────────────────────────────────────────────────────────────
-step 5 "Done"
+# ── Step 6: Done ─────────────────────────────────────────────────────────────
+step 6 "Done"
 
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
 

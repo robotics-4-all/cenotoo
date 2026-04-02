@@ -10,6 +10,10 @@ API_NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.typ
 API_PORT=$(kubectl get svc -n "${NAMESPACE}" "${RELEASE}-api" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "30080")
 BASE_URL="http://${API_NODE_IP}:${API_PORT}/api/v1"
 
+RUN_ID=$(date +%s)
+TEST_PROJECT="ssetest${RUN_ID}"
+TEST_COLLECTION="readings"
+
 PASS=0
 FAIL=0
 ERRORS=()
@@ -39,24 +43,25 @@ echo "========================================"
 # --- Auth ---
 echo ""
 echo "[Setup] Authenticating..."
-TOKEN=$(api POST /token \
+TOKEN=$(curl -s -X POST "${BASE_URL}/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
     -d "username=${ADMIN_USERNAME}&password=${ADMIN_PASSWORD}" \
-    -H "Content-Type: application/x-www-form-urlencoded" | jq -r '.access_token // ""')
-[[ -z "$TOKEN" ]] && { echo "FATAL: auth failed"; exit 1; }
+    | jq -r '.access_token // ""')
+[[ -z "$TOKEN" ]] && { echo "FATAL: auth failed (check CENOTOO_ADMIN_USERNAME / CENOTOO_ADMIN_PASSWORD)"; exit 1; }
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
 
 # --- Project & Collection setup ---
 echo "[Setup] Creating project..."
 PROJECT_ID=$(api POST /projects "${AUTH[@]}" \
-    -d '{"project_name":"sse_test","description":"SSE test","tags":[]}' \
-    | jq -r '.id // ""')
+    -d "{\"project_name\":\"${TEST_PROJECT}\",\"description\":\"SSE test\",\"tags\":[]}" \
+    | jq -r '.id.project_id // .project_id // .id // ""')
 [[ -z "$PROJECT_ID" ]] && { echo "FATAL: project creation failed"; exit 1; }
 
 echo "[Setup] Creating collection..."
-COLL_RESP=$(api POST "/projects/${PROJECT_ID}/collections" "${AUTH[@]}" \
-    -d '{"name":"readings","description":"SSE test collection","tags":[],"collection_schema":{"sensor_id":"text","value":"float"}}')
+api POST "/projects/${PROJECT_ID}/collections" "${AUTH[@]}" \
+    -d "{\"name\":\"${TEST_COLLECTION}\",\"description\":\"SSE test collection\",\"tags\":[],\"collection_schema\":{\"sensor_id\":\"text\",\"value\":\"float\"}}" > /dev/null
 COLL_ID=$(api GET "/projects/${PROJECT_ID}/collections" "${AUTH[@]}" \
-    | jq -r '.items[] | select(.collection_name=="readings") | .collection_id // ""')
+    | jq -r --arg name "$TEST_COLLECTION" '.items[] | select(.collection_name==$name) | .collection_id // ""')
 [[ -z "$COLL_ID" ]] && { echo "FATAL: collection creation failed"; exit 1; }
 
 echo "[Setup] Creating API keys..."

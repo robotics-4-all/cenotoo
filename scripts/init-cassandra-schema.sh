@@ -50,7 +50,7 @@ info "Initializing Cassandra schema (namespace=$NAMESPACE, rf=$CASSANDRA_RF)"
 wait_for_cql
 ok "CQL is responsive"
 
-info "Applying schema (keyspace + 6 tables) ..."
+info "Applying schema (keyspace + 9 tables) ..."
 
 run_cql <<EOF
 CREATE KEYSPACE IF NOT EXISTS metadata
@@ -104,6 +104,39 @@ CREATE TABLE IF NOT EXISTS metadata.revoked_tokens (
     revoked_at TIMESTAMP,
     expires_at TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS metadata.flink_jobs (
+    id UUID PRIMARY KEY,
+    collection_id UUID,
+    project_id UUID,
+    session_handle TEXT,
+    operation_handle TEXT,
+    job_type TEXT,
+    config TEXT,
+    sink_topic TEXT,
+    status TEXT,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS metadata.device (
+    id UUID PRIMARY KEY,
+    project_id UUID,
+    organization_id UUID,
+    name TEXT,
+    description TEXT,
+    tags LIST<TEXT>,
+    status TEXT,
+    last_seen TIMESTAMP,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS metadata.device_shadow (
+    device_id UUID PRIMARY KEY,
+    reported_state TEXT,
+    desired_state TEXT,
+    reported_at TIMESTAMP,
+    desired_at TIMESTAMP
+);
 EOF
 
 ok "Schema applied"
@@ -127,7 +160,7 @@ fi
 
 info "Verifying ..."
 TABLES=$(echo "SELECT table_name FROM system_schema.tables WHERE keyspace_name='metadata';" | run_cql)
-EXPECTED=("user" "organization" "project" "collection" "api_keys" "revoked_tokens")
+EXPECTED=("user" "organization" "project" "collection" "api_keys" "revoked_tokens" "flink_jobs" "device" "device_shadow")
 for tbl in "${EXPECTED[@]}"; do
     if echo "$TABLES" | grep -q "$tbl"; then
         ok "Verified: metadata.$tbl"
