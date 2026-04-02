@@ -144,6 +144,26 @@ session.execute("""
     );
 """)
 
+# Creating the Rules table
+session.execute("""
+    CREATE TABLE IF NOT EXISTS rules (
+        id UUID,
+        project_id UUID,
+        collection_id UUID,
+        name TEXT,
+        description TEXT,
+        field TEXT,
+        operator TEXT,
+        threshold FLOAT,
+        webhook_url TEXT,
+        cooldown_seconds INT,
+        last_fired_at TIMESTAMP,
+        enabled BOOLEAN,
+        created_at TIMESTAMP,
+        PRIMARY KEY ((project_id, collection_id), id)
+    );
+""")
+
 session.shutdown()
 cluster.shutdown()
 

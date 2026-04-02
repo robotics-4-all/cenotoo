@@ -63,6 +63,10 @@ Connect physical devices via MQTT or HTTP. Route data through Kafka. Process it 
 | 13 | **OpenTelemetry Tracing** — opt-in distributed tracing via `OTLP_ENDPOINT` | ✅ |
 | 14 | **End-to-end Security** — SCRAM-SHA-512 on Kafka, `PasswordAuthenticator` on Cassandra | ✅ |
 | 15 | **Dual Deployment** — same stack, same config: Docker Compose (dev) or Kubernetes (prod) | ✅ |
+| 16 | **Collection Metrics** — `GET /metrics` for health, record count, and last ingested timestamp | ✅ |
+| 17 | **Data Export** — `GET /export` to download collection data in CSV or Parquet format | ✅ |
+| 18 | **Bulk Import** — `POST /import` to upload CSV or JSON files with partial success handling | ✅ |
+| 19 | **Webhooks & Alerts** — `CRUD /rules` to trigger HTTP webhooks based on data thresholds | ✅ |
 
 ---
 

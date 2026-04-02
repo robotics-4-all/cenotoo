@@ -137,6 +137,23 @@ CREATE TABLE IF NOT EXISTS metadata.device_shadow (
     reported_at TIMESTAMP,
     desired_at TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS metadata.rules (
+    id UUID,
+    project_id UUID,
+    collection_id UUID,
+    name TEXT,
+    description TEXT,
+    field TEXT,
+    operator TEXT,
+    threshold FLOAT,
+    webhook_url TEXT,
+    cooldown_seconds INT,
+    last_fired_at TIMESTAMP,
+    enabled BOOLEAN,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((project_id, collection_id), id)
+);
 EOF
 
 ok "Schema applied"
@@ -160,7 +177,7 @@ fi
 
 info "Verifying ..."
 TABLES=$(echo "SELECT table_name FROM system_schema.tables WHERE keyspace_name='metadata';" | run_cql)
-EXPECTED=("user" "organization" "project" "collection" "api_keys" "revoked_tokens" "flink_jobs" "device" "device_shadow")
+EXPECTED=("user" "organization" "project" "collection" "api_keys" "revoked_tokens" "flink_jobs" "device" "device_shadow" "rules")
 for tbl in "${EXPECTED[@]}"; do
     if echo "$TABLES" | grep -q "$tbl"; then
         ok "Verified: metadata.$tbl"
