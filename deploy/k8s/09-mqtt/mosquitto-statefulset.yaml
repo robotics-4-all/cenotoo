@@ -73,7 +73,7 @@ spec:
               name: mqtt
           volumeMounts:
             - name: config
-              mountPath: /etc/mosquitto/conf.d/mosquitto.conf
+              mountPath: /etc/mosquitto/mosquitto.conf
               subPath: mosquitto.conf
             - name: data
               mountPath: /mosquitto/data
