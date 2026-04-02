@@ -118,6 +118,32 @@ session.execute("""
     );
 """)
 
+# Device registry — one row per physical/logical device
+session.execute("""
+    CREATE TABLE IF NOT EXISTS device (
+        id UUID PRIMARY KEY,
+        project_id UUID,
+        organization_id UUID,
+        name TEXT,
+        description TEXT,
+        tags LIST<TEXT>,
+        status TEXT,
+        last_seen TIMESTAMP,
+        created_at TIMESTAMP
+    );
+""")
+
+# Device shadow — reported (device→cloud) and desired (cloud→device) state stored as JSON text
+session.execute("""
+    CREATE TABLE IF NOT EXISTS device_shadow (
+        device_id UUID PRIMARY KEY,
+        reported_state TEXT,
+        desired_state TEXT,
+        reported_at TIMESTAMP,
+        desired_at TIMESTAMP
+    );
+""")
+
 session.shutdown()
 cluster.shutdown()
 
