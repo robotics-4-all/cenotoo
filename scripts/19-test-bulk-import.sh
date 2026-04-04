@@ -139,9 +139,9 @@ else
 fi
 
 cat <<EOF > "$_CSV_FILE"
-temp,room
-22.5,lab-01
-23.0,lab-02
+key,temp,room
+sensor-01,22.5,lab-01
+sensor-02,23.0,lab-02
 EOF
 
 CSV_HTTP=$(_api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/import" -H "X-API-Key: ${WRITE_KEY}" -F "file=@${_CSV_FILE}")
@@ -158,8 +158,8 @@ fi
 
 cat <<EOF > "$_JSON_FILE"
 [
-  {"temp": 21.5, "room": "lab-03"},
-  {"temp": 24.0, "room": "lab-04"}
+  {"key": "sensor-03", "temp": 21.5, "room": "lab-03"},
+  {"key": "sensor-04", "temp": 24.0, "room": "lab-04"}
 ]
 EOF
 
