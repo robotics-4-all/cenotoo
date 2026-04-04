@@ -198,7 +198,7 @@ UPD_HTTP=$(_api PUT "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION
     -d '{"threshold": 35.0, "enabled": false}')
 if [ "$UPD_HTTP" = "200" ]; then
     THRESH=$(jq -r '.threshold // ""' "$_RESP_FILE")
-    EN=$(jq -r '.enabled // ""' "$_RESP_FILE")
+    EN=$(jq -r '.enabled | tostring' "$_RESP_FILE")
     if [ "$THRESH" = "35.0" ] || [ "$THRESH" = "35" ]; then
         pass "Update rule threshold successful"
     else

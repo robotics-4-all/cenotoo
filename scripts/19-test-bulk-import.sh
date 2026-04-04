@@ -195,7 +195,7 @@ else
     fail "Mixed CSV import failed (HTTP $MIXED_HTTP)"
 fi
 
-sleep 2
+sleep 12
 GET_HTTP=$(_api GET "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/get_data" -H "X-API-Key: ${READ_KEY}")
 if [ "$GET_HTTP" = "200" ]; then
     TOTAL=$(jq -r '.total_count // 0' "$_RESP_FILE")
