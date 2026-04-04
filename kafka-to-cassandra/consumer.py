@@ -4,7 +4,9 @@ import os
 import re
 import signal
 import time
+from datetime import datetime
 
+from cassandra import InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import Cluster
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -44,6 +46,19 @@ def _signal_handler(signum, frame):
 
 signal.signal(signal.SIGTERM, _signal_handler)
 signal.signal(signal.SIGINT, _signal_handler)
+
+
+def _coerce_value(value, cql_type):
+    if value is None or cql_type is None:
+        return value
+    if isinstance(value, str):
+        type_name = getattr(cql_type, "typename", "")
+        if type_name == "timestamp":
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                pass
+    return value
 
 
 def _validate_identifier(name):
@@ -152,7 +167,17 @@ def consume_and_store():
                 query = (
                     f"INSERT INTO {keyspace_name}.{table_name} ({col_str}) VALUES ({placeholders})"
                 )
-                prepared_cache[col_key] = session.prepare(query)
+                try:
+                    prepared_cache[col_key] = session.prepare(query)
+                except InvalidRequest as exc:
+                    logger.warning(
+                        "Skipping message — schema mismatch for %s.%s: %s",
+                        keyspace_name,
+                        table_name,
+                        exc,
+                    )
+                    consumer.commit(message=msg, asynchronous=False)
+                    continue
                 logger.info(
                     "Prepared new statement for %s.%s columns: %s",
                     keyspace_name,
@@ -161,7 +186,8 @@ def consume_and_store():
                 )
 
             prepared = prepared_cache[col_key]
-            values = [message_data[col] for col in columns]
+            type_map = {meta[2]: meta[3] for meta in (prepared.column_metadata or [])}
+            values = [_coerce_value(message_data[col], type_map.get(col)) for col in columns]
             session.execute(prepared, values)
 
             # Commit offset after successful write
