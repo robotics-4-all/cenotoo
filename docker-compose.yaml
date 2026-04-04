@@ -75,7 +75,7 @@ services:
     volumes:
       - ./cassandra1_data:/var/lib/cassandra
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local' || exit 1"]
+      test: ["CMD-SHELL", "cqlsh -u ${CASSANDRA_USERNAME:-cassandra} -p ${CASSANDRA_PASSWORD:-cassandra} -e 'SELECT now() FROM system.local' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -102,7 +102,7 @@ services:
     volumes:
       - ./cassandra2_data:/var/lib/cassandra
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local' || exit 1"]
+      test: ["CMD-SHELL", "cqlsh -u ${CASSANDRA_USERNAME:-cassandra} -p ${CASSANDRA_PASSWORD:-cassandra} -e 'SELECT now() FROM system.local' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

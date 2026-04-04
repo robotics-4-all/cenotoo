@@ -38,7 +38,7 @@ header(){ printf '\n\033[1;36m--- %s ---\033[0m\n' "$*"; }
 
 run_cql() {
     kubectl exec -n "$NAMESPACE" "$CASS_POD" -c cassandra -- \
-        cqlsh -u cassandra -p cassandra -e "$1" < /dev/null 2>/dev/null
+        cqlsh -u "${CASSANDRA_USER:-cassandra}" -p "${CASSANDRA_PASS:-cassandra}" -e "$1" < /dev/null 2>/dev/null
 }
 
 cleanup() {

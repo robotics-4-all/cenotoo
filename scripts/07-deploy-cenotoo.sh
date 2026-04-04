@@ -89,8 +89,7 @@ info "Applying secrets ..."
 for example_file in "$MANIFEST_DIR"/01-secrets/*.yaml.example; do
     target="${example_file%.example}"
     if [ ! -f "$target" ]; then
-        cp "$example_file" "$target"
-        warn "$(basename "$target") not found — using defaults from $(basename "$example_file")"
+        fail "Secret file missing: $(basename "$target"). Run ./scripts/configure-secrets.sh first."
     fi
 done
 kubectl apply -f "$MANIFEST_DIR/01-secrets/" -n "$NAMESPACE"
