@@ -232,7 +232,7 @@ if [ "$HTTP" = "200" ]; then
         fail "TEST_01a: avg response shape wrong (rows=$ROWS, avg_temp=$AVG): $(cat "$_RESP_FILE")"
     fi
     # avg of 10+20+30+40+50 = 30.0
-    AVG_INT=$(echo "$AVG" | jq 'floor | tostring' 2>/dev/null || echo "0")
+    AVG_INT=$(echo "$AVG" | jq -r 'floor | tostring' 2>/dev/null || echo "0")
     if [ "${AVG_INT:-0}" = "30" ]; then
         pass "TEST_01b: avg_temp correct (30.0)"
     else
@@ -281,7 +281,7 @@ HTTP=$(_api GET "${STATS_URL}?attribute=temp&stat=sum&interval=every_1_days" \
     -H "X-API-Key: ${READ_KEY}")
 if [ "$HTTP" = "200" ]; then
     SUM=$(jq -r '.[0].sum_temp // "null"' "$_RESP_FILE" 2>/dev/null || echo "null")
-    SUM_INT=$(echo "$SUM" | jq 'floor | tostring' 2>/dev/null || echo "0")
+    SUM_INT=$(echo "$SUM" | jq -r 'floor | tostring' 2>/dev/null || echo "0")
     if [ "${SUM_INT:-0}" = "150" ]; then
         pass "TEST_04: sum_temp=150 correct"
     else
