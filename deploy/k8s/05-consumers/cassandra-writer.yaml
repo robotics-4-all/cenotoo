@@ -23,14 +23,22 @@ spec:
           image: kafka-cassandra-consumer:latest
           imagePullPolicy: IfNotPresent
           env:
-            - name: COLLECTION_NAME
-              value: "sensors"
-            - name: PROJECT_NAME
-              value: "demo"
-            - name: ORGANIZATION_NAME
-              value: "cenotoo"
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: cenotoo-kafka-kafka-bootstrap:9092
+            - name: KAFKA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-kafka-credentials
+                  key: username
+            - name: KAFKA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-kafka-credentials
+                  key: password
+            - name: KAFKA_SASL_MECHANISM
+              value: "SCRAM-SHA-512"
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: "SASL_PLAINTEXT"
             - name: CASSANDRA_CONTACT_POINTS
               value: cenotoo-cassandra
             - name: CASSANDRA_USERNAME

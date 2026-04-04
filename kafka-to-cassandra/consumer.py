@@ -21,13 +21,14 @@ KAFKA_USERNAME = os.getenv("KAFKA_USERNAME", "")
 KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", "SCRAM-SHA-512")
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
+KAFKA_CONSUMER_GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "cenotoo_cassandra_writer")
 CASSANDRA_CONTACT_POINTS = [os.getenv("CASSANDRA_CONTACT_POINTS", "localhost")]
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
 CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "your_collection_name")
-PROJECT_NAME = os.getenv("PROJECT_NAME", "your_project_name")
-ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "your_organization_name")
+
+# Regex pattern to subscribe to all org.project.collection topics
+TOPIC_PATTERN = "^[a-zA-Z_][a-zA-Z0-9_]*\\.[a-zA-Z_][a-zA-Z0-9_]*\\.[a-zA-Z_][a-zA-Z0-9_]*$"
 
 # Valid CQL identifier pattern (alphanumeric + underscore only)
 _VALID_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -80,20 +81,17 @@ def _connect_cassandra(contact_points, port, username="", password="", max_retri
     raise RuntimeError("Failed to connect to Cassandra")
 
 
-def consume_and_store(topic_name, keyspace_name, table_name):
-    _validate_identifier(keyspace_name)
-    _validate_identifier(table_name)
-
+def consume_and_store():
     cluster, session = _connect_cassandra(
         CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT, CASSANDRA_USERNAME, CASSANDRA_PASSWORD
     )
 
-    # Cache for prepared statements keyed by frozenset of column names
+    # Cache for prepared statements keyed by (keyspace, table, frozenset of column names)
     prepared_cache = {}
 
     consumer_config = {
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-        "group.id": f"{topic_name}_cassandra_writer",
+        "group.id": KAFKA_CONSUMER_GROUP,
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False,
     }
@@ -109,8 +107,8 @@ def consume_and_store(topic_name, keyspace_name, table_name):
 
     consumer = Consumer(consumer_config)
 
-    consumer.subscribe([topic_name])
-    logger.info("Subscribed to topic: %s", topic_name)
+    consumer.subscribe([TOPIC_PATTERN])
+    logger.info("Subscribed to topic pattern: %s", TOPIC_PATTERN)
 
     try:
         while not _shutdown:
@@ -123,6 +121,22 @@ def consume_and_store(topic_name, keyspace_name, table_name):
                 else:
                     raise KafkaException(msg.error())
 
+            topic = msg.topic()
+            parts = topic.split(".")
+            if len(parts) != 3:
+                logger.warning("Skipping message from unexpected topic format: %s", topic)
+                consumer.commit(message=msg, asynchronous=False)
+                continue
+
+            org, project, collection = parts
+            try:
+                keyspace_name = _validate_identifier(org)
+                table_name = _validate_identifier(f"{project}_{collection}")
+            except ValueError as exc:
+                logger.warning("Skipping message — invalid identifiers in topic %s: %s", topic, exc)
+                consumer.commit(message=msg, asynchronous=False)
+                continue
+
             message_data = json.loads(msg.value().decode("utf-8"))
             message_data["key"] = msg.key().decode("utf-8") if msg.key() else None
 
@@ -131,7 +145,7 @@ def consume_and_store(topic_name, keyspace_name, table_name):
                 _validate_identifier(col_name)
                 columns.append(col_name)
 
-            col_key = frozenset(columns)
+            col_key = (keyspace_name, table_name, frozenset(columns))
             if col_key not in prepared_cache:
                 col_str = ", ".join(columns)
                 placeholders = ", ".join(["?"] * len(columns))
@@ -139,7 +153,12 @@ def consume_and_store(topic_name, keyspace_name, table_name):
                     f"INSERT INTO {keyspace_name}.{table_name} ({col_str}) VALUES ({placeholders})"
                 )
                 prepared_cache[col_key] = session.prepare(query)
-                logger.info("Prepared new statement for columns: %s", columns)
+                logger.info(
+                    "Prepared new statement for %s.%s columns: %s",
+                    keyspace_name,
+                    table_name,
+                    columns,
+                )
 
             prepared = prepared_cache[col_key]
             values = [message_data[col] for col in columns]
@@ -159,6 +178,4 @@ def consume_and_store(topic_name, keyspace_name, table_name):
 
 
 if __name__ == "__main__":
-    topic = f"{ORGANIZATION_NAME}.{PROJECT_NAME}.{COLLECTION_NAME}"
-    table = f"{PROJECT_NAME}_{COLLECTION_NAME}"
-    consume_and_store(topic, ORGANIZATION_NAME, table)
+    consume_and_store()
