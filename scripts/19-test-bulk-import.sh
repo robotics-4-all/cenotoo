@@ -176,10 +176,10 @@ else
 fi
 
 cat <<EOF > "$_CSV_FILE"
-temp,room
-22.5,lab-05
-invalid,lab-06
-23.0,lab-07
+key,temp,room
+sensor-05,22.5,lab-05
+sensor-06,invalid,lab-06
+sensor-07,23.0,lab-07
 EOF
 
 MIXED_HTTP=$(_api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/import" -H "X-API-Key: ${WRITE_KEY}" -F "file=@${_CSV_FILE}")
@@ -195,7 +195,13 @@ else
     fail "Mixed CSV import failed (HTTP $MIXED_HTTP)"
 fi
 
-sleep 12
+sleep 2
+if ! curl -s "http://localhost:${API_PORT}/health" &>/dev/null; then
+    pkill -f "kubectl port-forward.*${API_PORT}:8000" 2>/dev/null || true
+    kubectl port-forward "svc/${API_SVC}" "${API_PORT}:8000" -n "$NAMESPACE" &>/dev/null &
+    PF_API_PID=$!
+    sleep 2
+fi
 GET_HTTP=$(_api GET "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/get_data" -H "X-API-Key: ${READ_KEY}")
 if [ "$GET_HTTP" = "200" ]; then
     TOTAL=$(jq -r '.total_count // 0' "$_RESP_FILE")
