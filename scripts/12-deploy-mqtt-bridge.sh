@@ -113,7 +113,7 @@ fi
 echo ""
 info "Writing K8s secret ..."
 
-cat > "$SECRETS_DIR/mqtt-credentials.yaml" <<EOF
+sudo tee "$SECRETS_DIR/mqtt-credentials.yaml" > /dev/null <<EOF
 apiVersion: v1
 kind: Secret
 metadata:

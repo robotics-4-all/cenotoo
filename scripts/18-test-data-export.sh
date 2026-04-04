@@ -136,7 +136,7 @@ _api POST "${API_BASE}/projects/${PROJECT_ID}/keys" -H "Authorization: Bearer ${
 WRITE_KEY=$(jq -r '.api_key // ""' "$_RESP_FILE" 2>/dev/null || echo "")
 
 info "Ingesting test data..."
-_api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/send_data" \
+_api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/store_data" \
     -H "X-API-Key: ${WRITE_KEY}" \
     -H "Content-Type: application/json" \
     -d '{"temp": 22.5, "room": "lab-01"}' >/dev/null

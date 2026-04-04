@@ -162,7 +162,7 @@ else
 fi
 
 info "Ingesting a record..."
-_api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/send_data" \
+_api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/store_data" \
     -H "X-API-Key: ${WRITE_KEY}" \
     -H "Content-Type: application/json" \
     -d '{"temp": 22.5, "room": "lab-01"}' >/dev/null

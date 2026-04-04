@@ -118,7 +118,7 @@ class TestConsumeAndStore:
         consumer_instance.poll.side_effect = lambda t: setattr(_mod, "_shutdown", True) or None
 
         _mod._shutdown = False
-        _mod.consume_and_store("test_topic", "test_org", "test_table")
+        _mod.consume_and_store()
 
         config = mock_consumer_cls.call_args[0][0]
         assert config["security.protocol"] == "SASL_PLAINTEXT"
@@ -140,7 +140,7 @@ class TestConsumeAndStore:
         consumer_instance.poll.side_effect = lambda t: setattr(_mod, "_shutdown", True) or None
 
         _mod._shutdown = False
-        _mod.consume_and_store("test_topic", "test_org", "test_table")
+        _mod.consume_and_store()
 
         config = mock_consumer_cls.call_args[0][0]
         assert "security.protocol" not in config
@@ -159,6 +159,7 @@ class TestConsumeAndStore:
 
         msg = MagicMock()
         msg.error.return_value = None
+        msg.topic.return_value = "testorg.testproject.testcollection"
         msg.value.return_value = b'{"temperature": 22.5}'
         msg.key.return_value = b"sensor_001"
 
@@ -178,7 +179,7 @@ class TestConsumeAndStore:
 
         consumer_instance.poll.side_effect = poll_with_shutdown
 
-        _mod.consume_and_store("test_topic", "test_org", "test_table")
+        _mod.consume_and_store()
 
         mock_session.prepare.assert_called_once()
         mock_session.execute.assert_called_once()

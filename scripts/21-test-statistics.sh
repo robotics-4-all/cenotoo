@@ -210,7 +210,7 @@ header "Data Ingestion (5 records with known temp values)"
 # Temperatures: 10, 20, 30, 40, 50  →  avg=30, min=10, max=50, sum=150, count=5
 SENSOR_KEY="stat-sensor-01"
 for temp in 10 20 30 40 50; do
-    _api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/send_data" \
+    _api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/store_data" \
         -H "X-API-Key: ${WRITE_KEY}" \
         -H "Content-Type: application/json" \
         -d "{\"key\": \"${SENSOR_KEY}\", \"temp\": ${temp}, \"room\": \"lab-01\"}" >/dev/null
