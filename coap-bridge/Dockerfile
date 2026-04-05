@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY . /app
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV COAP_HOST=::
+ENV COAP_PORT=5683
+ENV HEALTH_PORT=8080
+ENV KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+ENV KAFKA_SASL_MECHANISM=PLAIN
+ENV KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT
+ENV MAX_PAYLOAD_BYTES=1024
+
+CMD ["python", "coap_bridge.py"]

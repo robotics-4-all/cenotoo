@@ -29,6 +29,10 @@ centoo/
 │   ├── mqtt_bridge.py          # Subscribes to # wildcard, wraps payloads in JSON envelope, produces to Kafka
 │   ├── Dockerfile
 │   └── requirements.txt        # paho-mqtt, confluent_kafka
+├── coap-bridge/                # CoAP ingestion plugin: aiocoap server→Kafka bridge (auth inline)
+│   ├── coap_bridge.py          # POST /{org}/{project}/{collection}?key=<api_key> → Kafka; HTTP health on :8080
+│   ├── Dockerfile
+│   └── requirements.txt        # aiocoap, confluent_kafka, cassandra-driver, flask
 ├── mosquitto/
 │   └── mosquitto.conf          # Mosquitto broker config (dev: allow_anonymous; prod: passwd auth)
 ├── flink/
@@ -47,12 +51,13 @@ centoo/
 │   ├── 07-deploy-cenotoo.sh    # Deploy Cenotoo Helm chart on k3s
 │   ├── build-images.sh         # Builds 4 Docker images (flink, kafka-to-cassandra, kafka-live-consumer, mqtt-bridge)
 │   └── generate-cluster-id.py  # UUID→base64 Kafka cluster ID generator
-├── tests/                      # pytest test suite (48 tests)
+├── tests/                      # pytest test suite (98 tests)
 │   ├── conftest.py             # Shared mock fixtures (Kafka, Cassandra)
 │   ├── test_cassandra_writer.py
 │   ├── test_live_consumer.py
 │   ├── test_cluster_id.py
-│   └── test_mqtt_bridge.py
+│   ├── test_mqtt_bridge.py
+│   └── test_coap_bridge.py
 ├── deploy/
 │   └── helm/
 │       └── cenotoo/                # Helm chart for Kubernetes deployment
@@ -91,7 +96,7 @@ centoo/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add/modify a service | `docker-compose.yaml` | 6 services: kafka×2, cassandra×2, flink JM+TM |
+| Add/modify a service | `docker-compose.yaml` | 7 services: kafka×2, cassandra×2, flink JM+TM, coap-bridge |
 | Add Flink SQL jobs | `flink/sql/` | Submit via `sql-client.sh -f`; no native Cassandra sink — use DataStream API |
 | Change Cassandra schema | `cassandra/create_cassandra_tables.py` | Run on ONE node only |
 | Modify Kafka auth | `kafka/kafka.jaas.conf` | Creds via `$KAFKA_USERNAME`, `$KAFKA_PASSWORD` env vars |
@@ -128,6 +133,9 @@ centoo/
 ## ANTI-PATTERNS (THIS PROJECT)
 
 - **Flink SQL has no native Cassandra sink** — writing to Cassandra requires Java/Scala DataStream API with `CassandraSink`, not pure SQL
+- **aiocoap DTLS is highly experimental** — do NOT use it; plaintext UDP only for CoAP bridge
+- **MUST NOT name any Python file consumer.py** — pytest importlib isolation will break on duplicate module names
+- **CoAP auth is inline in coap-bridge** — no sidecar needed (unlike MQTT which requires mqtt-auth sidecar for Mosquitto go-auth plugin)
 
 ## COMMANDS
 
@@ -140,6 +148,7 @@ centoo/
 ./scripts/05-install-flink-operator.sh
 ./scripts/06-install-monitoring.sh       # optional
 ./scripts/07-deploy-cenotoo.sh
+./scripts/22-deploy-coap-bridge.sh   # CoAP bridge (optional)
 
 # Generate Kafka cluster ID (run once, Docker Compose only)
 python scripts/generate-cluster-id.py
