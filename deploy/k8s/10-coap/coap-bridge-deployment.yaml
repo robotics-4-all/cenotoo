@@ -38,18 +38,8 @@ spec:
               value: "8080"
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: cenotoo-kafka-kafka-bootstrap:9092
-            - name: KAFKA_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-kafka-credentials
-                  key: username
-            - name: KAFKA_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-kafka-credentials
-                  key: password
             - name: CASSANDRA_CONTACT_POINTS
-              value: cenotoo-cassandra-service
+              value: cenotoo-cassandra
             - name: CASSANDRA_PORT
               value: "9042"
             - name: CASSANDRA_USERNAME
