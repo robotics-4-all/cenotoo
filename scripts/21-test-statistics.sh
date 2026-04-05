@@ -206,14 +206,18 @@ STATS_URL="${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/stati
 # ---------------------------------------------------------------------------
 header "Data Ingestion (5 records with known temp values)"
 # ---------------------------------------------------------------------------
-# Ingest 5 records with the same key so they aggregate into one bucket.
+# All records share the same key so stats aggregate within one partition bucket.
+# The table PRIMARY KEY is ((day, key), timestamp) — records in the same
+# partition overwrite each other when timestamps collide. sleep 1 between each
+# POST guarantees distinct second-precision timestamps.
 # Temperatures: 10, 20, 30, 40, 50  →  avg=30, min=10, max=50, sum=150, count=5
-SENSOR_KEY="stat-sensor-01"
+SENSOR_KEY="${RUN_ID}-sensor"
 for temp in 10 20 30 40 50; do
     _api POST "${API_BASE}/projects/${PROJECT_ID}/collections/${COLLECTION_ID}/store_data" \
         -H "X-API-Key: ${WRITE_KEY}" \
         -H "Content-Type: application/json" \
         -d "{\"key\": \"${SENSOR_KEY}\", \"temp\": ${temp}, \"room\": \"lab-01\"}" >/dev/null
+    sleep 1
 done
 info "Ingested 5 records (temp: 10,20,30,40,50) with key=$SENSOR_KEY — waiting for consumer ..."
 sleep 8
