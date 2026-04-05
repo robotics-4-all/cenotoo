@@ -11,10 +11,9 @@ import uuid
 
 import aiocoap
 import aiocoap.resource as resource
+import psycopg2
+import psycopg2.extras
 from aiocoap.numbers.codes import Code
-from cassandra.auth import PlainTextAuthProvider
-from cassandra.cluster import Cluster
-from cassandra.policies import DCAwareRoundRobinPolicy
 from confluent_kafka import KafkaException, Producer
 from flask import Flask
 
@@ -34,31 +33,32 @@ KAFKA_USERNAME = os.getenv("KAFKA_USERNAME", "")
 KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
 KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", "PLAIN")
 KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
-CASSANDRA_CONTACT_POINTS = os.getenv("CASSANDRA_CONTACT_POINTS", "localhost").split(",")
-CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
-CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
-CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "cenotoo")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "cenotoo")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "cenotoo")
 MAX_PAYLOAD_BYTES = int(os.getenv("MAX_PAYLOAD_BYTES", "1024"))
 
 # ── Global state ──────────────────────────────────────────────────────────────
 
 _shutdown = False
 _message_queue = queue.Queue()
-_cassandra_session = None
+_pg_conn = None
 
-# ── Cassandra auth ─────────────────────────────────────────────────────────────
+# ── PostgreSQL auth ────────────────────────────────────────────────────────────
 
 
-def _connect_cassandra():
-    global _cassandra_session
-    kwargs = {
-        "load_balancing_policy": DCAwareRoundRobinPolicy(),
-    }
-    if CASSANDRA_USERNAME and CASSANDRA_PASSWORD:
-        kwargs["auth_provider"] = PlainTextAuthProvider(CASSANDRA_USERNAME, CASSANDRA_PASSWORD)
-    cluster = Cluster(CASSANDRA_CONTACT_POINTS, port=CASSANDRA_PORT, **kwargs)
-    _cassandra_session = cluster.connect("metadata")
-    logger.info("Connected to Cassandra at %s:%s", CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT)
+def _connect_postgres():
+    global _pg_conn
+    _pg_conn = psycopg2.connect(
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        dbname=POSTGRES_DB,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
+    )
+    logger.info("Connected to PostgreSQL at %s:%s", POSTGRES_HOST, POSTGRES_PORT)
 
 
 def _hash_key(raw):
@@ -67,34 +67,40 @@ def _hash_key(raw):
 
 def _lookup_key(hashed):
     try:
-        return _cassandra_session.execute(
-            "SELECT project_id, key_type FROM api_keys WHERE api_key=%s LIMIT 1 ALLOW FILTERING",
-            (hashed,),
-        ).one()
+        with _pg_conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute(
+                "SELECT project_id, key_type FROM api_keys WHERE api_key=%s LIMIT 1",
+                (hashed,),
+            )
+            return cur.fetchone()
     except Exception as exc:
-        logger.error("Cassandra error (key lookup): %s", exc)
+        logger.error("PostgreSQL error (key lookup): %s", exc)
         return None
 
 
 def _lookup_org(org_id):
     try:
-        return _cassandra_session.execute(
-            "SELECT organization_name FROM organization WHERE id=%s LIMIT 1",
-            (org_id,),
-        ).one()
+        with _pg_conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute(
+                "SELECT organization_name FROM organization WHERE id=%s",
+                (org_id,),
+            )
+            return cur.fetchone()
     except Exception as exc:
-        logger.error("Cassandra error (org lookup): %s", exc)
+        logger.error("PostgreSQL error (org lookup): %s", exc)
         return None
 
 
 def _lookup_project(project_id):
     try:
-        return _cassandra_session.execute(
-            "SELECT project_name, organization_id FROM project WHERE id=%s LIMIT 1 ALLOW FILTERING",
-            (project_id,),
-        ).one()
+        with _pg_conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute(
+                "SELECT project_name, organization_id FROM project WHERE id=%s LIMIT 1",
+                (project_id,),
+            )
+            return cur.fetchone()
     except Exception as exc:
-        logger.error("Cassandra error (project lookup): %s", exc)
+        logger.error("PostgreSQL error (project lookup): %s", exc)
         return None
 
 
@@ -315,7 +321,7 @@ async def _run_server():
 
 
 def main():
-    _connect_cassandra()
+    _connect_postgres()
 
     producer = _build_producer()
     producer_thread = threading.Thread(target=_run_producer, args=(producer,), daemon=True)

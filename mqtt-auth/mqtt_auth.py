@@ -5,8 +5,8 @@ import signal
 import sys
 import uuid
 
-from cassandra.auth import PlainTextAuthProvider
-from cassandra.cluster import Cluster
+import psycopg2
+import psycopg2.extras
 from flask import Flask, request
 
 logging.basicConfig(
@@ -15,26 +15,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CASSANDRA_CONTACT_POINTS = os.getenv("CASSANDRA_CONTACT_POINTS", "localhost").split(",")
-CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
-CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
-CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "cenotoo")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "cenotoo")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "cenotoo")
 ORGANIZATION_ID = os.getenv("ORGANIZATION_ID", "")
 MQTT_BRIDGE_USERNAME = os.getenv("MQTT_BRIDGE_USERNAME", "cenotoo-bridge")
 MQTT_BRIDGE_PASSWORD = os.getenv("MQTT_BRIDGE_PASSWORD", "")
 
 app = Flask(__name__)
-_session = None
+_conn = None
 
 
 def _connect():
-    global _session
-    kwargs = {}
-    if CASSANDRA_USERNAME and CASSANDRA_PASSWORD:
-        kwargs["auth_provider"] = PlainTextAuthProvider(CASSANDRA_USERNAME, CASSANDRA_PASSWORD)
-    cluster = Cluster(CASSANDRA_CONTACT_POINTS, port=CASSANDRA_PORT, **kwargs)
-    _session = cluster.connect("metadata")
-    logger.info("Connected to Cassandra at %s:%s", CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT)
+    global _conn
+    _conn = psycopg2.connect(
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        dbname=POSTGRES_DB,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
+    )
+    logger.info("Connected to PostgreSQL at %s:%s", POSTGRES_HOST, POSTGRES_PORT)
 
 
 def _hash_key(raw):
@@ -43,36 +46,40 @@ def _hash_key(raw):
 
 def _lookup_key(hashed, project_id):
     try:
-        return _session.execute(
-            "SELECT key_type FROM api_keys "
-            "WHERE api_key=%s AND project_id=%s LIMIT 1 ALLOW FILTERING",
-            (hashed, project_id),
-        ).one()
+        with _conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute(
+                "SELECT key_type FROM api_keys WHERE api_key=%s AND project_id=%s LIMIT 1",
+                (hashed, project_id),
+            )
+            return cur.fetchone()
     except Exception as e:
-        logger.error("Cassandra error (key lookup): %s", e)
+        logger.error("PostgreSQL error (key lookup): %s", e)
         return None
 
 
 def _lookup_org(org_id):
     try:
-        return _session.execute(
-            "SELECT organization_name FROM organization WHERE id=%s LIMIT 1",
-            (org_id,),
-        ).one()
+        with _conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute(
+                "SELECT organization_name FROM organization WHERE id=%s",
+                (org_id,),
+            )
+            return cur.fetchone()
     except Exception as e:
-        logger.error("Cassandra error (org lookup): %s", e)
+        logger.error("PostgreSQL error (org lookup): %s", e)
         return None
 
 
 def _lookup_project(project_id, org_id):
     try:
-        return _session.execute(
-            "SELECT project_name FROM project "
-            "WHERE id=%s AND organization_id=%s LIMIT 1 ALLOW FILTERING",
-            (project_id, org_id),
-        ).one()
+        with _conn.cursor(cursor_factory=psycopg2.extras.NamedTupleCursor) as cur:
+            cur.execute(
+                "SELECT project_name FROM project WHERE id=%s AND organization_id=%s LIMIT 1",
+                (project_id, org_id),
+            )
+            return cur.fetchone()
     except Exception as e:
-        logger.error("Cassandra error (project lookup): %s", e)
+        logger.error("PostgreSQL error (project lookup): %s", e)
         return None
 
 

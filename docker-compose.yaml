@@ -151,18 +151,38 @@ services:
       - flink-data:/opt/flink/checkpoints
       - flink-savepoints:/opt/flink/savepoints
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: cenotoo
+      POSTGRES_USER: cenotoo
+      POSTGRES_PASSWORD: cenotoo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cenotoo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   mqtt-auth:
     image: mqtt-auth:latest
     container_name: mqtt-auth
     restart: always
     depends_on:
-      cassandra1:
+      postgres:
         condition: service_healthy
     environment:
-      CASSANDRA_CONTACT_POINTS: cassandra1
-      CASSANDRA_PORT: 9042
-      CASSANDRA_USERNAME: ${CASSANDRA_USERNAME:-cassandra}
-      CASSANDRA_PASSWORD: ${CASSANDRA_PASSWORD:-cassandra}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: cenotoo
+      POSTGRES_USER: cenotoo
+      POSTGRES_PASSWORD: cenotoo
       ORGANIZATION_ID: ${ORGANIZATION_ID:-}
       MQTT_BRIDGE_USERNAME: ${MQTT_BRIDGE_USERNAME:-cenotoo-bridge}
       MQTT_BRIDGE_PASSWORD: ${MQTT_BRIDGE_PASSWORD:-}
@@ -218,7 +238,7 @@ services:
     container_name: coap-bridge
     restart: always
     depends_on:
-      cassandra1:
+      postgres:
         condition: service_healthy
       kafka1:
         condition: service_healthy
@@ -233,11 +253,11 @@ services:
       KAFKA_PASSWORD: ${KAFKA_PASSWORD}
       KAFKA_SASL_MECHANISM: ${KAFKA_SASL_MECHANISM:-PLAIN}
       KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL:-SASL_PLAINTEXT}
-      CASSANDRA_CONTACT_POINTS: cassandra1
-      CASSANDRA_PORT: 9042
-      CASSANDRA_USERNAME: ${CASSANDRA_USERNAME:-cassandra}
-      CASSANDRA_PASSWORD: ${CASSANDRA_PASSWORD:-cassandra}
-      ORGANIZATION_ID: ${ORGANIZATION_ID:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: cenotoo
+      POSTGRES_USER: cenotoo
+      POSTGRES_PASSWORD: cenotoo
       MAX_PAYLOAD_BYTES: ${COAP_MAX_PAYLOAD_BYTES:-1024}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
@@ -250,3 +270,4 @@ volumes:
   flink-data: {}
   flink-savepoints: {}
   mosquitto_data: {}
+  postgres_data: {}

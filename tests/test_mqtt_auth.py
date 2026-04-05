@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import sys
+import uuid
 from unittest.mock import MagicMock
 
 _AUTH_PATH = os.path.join(os.path.dirname(__file__), "..", "mqtt-auth", "mqtt_auth.py")
@@ -23,6 +24,18 @@ def _make_row(**kwargs):
     return row
 
 
+def _make_pg_conn(fetchone_return=None, side_effect=None):
+    mock_cursor = MagicMock()
+    mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_cursor.__exit__ = MagicMock(return_value=False)
+    if side_effect is not None:
+        mock_cursor.execute.side_effect = side_effect
+    mock_cursor.fetchone.return_value = fetchone_return
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    return mock_conn, mock_cursor
+
+
 class TestHashKey:
     def test_returns_64_char_hex(self):
         result = _hash_key("somekey")
@@ -38,58 +51,54 @@ class TestHashKey:
 
 class TestLookupKey:
     def test_returns_row_on_hit(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.return_value.one.return_value = _make_row(key_type="write")
-        import uuid
+        row = _make_row(key_type="write")
+        conn, _ = _make_pg_conn(fetchone_return=row)
+        _mod._conn = conn
 
-        row = _lookup_key("hashed", uuid.uuid4())
-        assert row.key_type == "write"
+        result = _lookup_key("hashed", uuid.uuid4())
+        assert result.key_type == "write"
 
-    def test_returns_none_on_cassandra_error(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.side_effect = Exception("connection refused")
-        import uuid
+    def test_returns_none_on_db_error(self):
+        conn, _ = _make_pg_conn(side_effect=Exception("connection refused"))
+        _mod._conn = conn
 
         assert _lookup_key("hashed", uuid.uuid4()) is None
 
     def test_returns_none_when_no_row(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.return_value.one.return_value = None
-        import uuid
+        conn, _ = _make_pg_conn(fetchone_return=None)
+        _mod._conn = conn
 
         assert _lookup_key("hashed", uuid.uuid4()) is None
 
 
 class TestLookupOrg:
     def test_returns_org_row(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.return_value.one.return_value = _make_row(organization_name="acme")
-        import uuid
+        row = _make_row(organization_name="acme")
+        conn, _ = _make_pg_conn(fetchone_return=row)
+        _mod._conn = conn
 
-        row = _lookup_org(uuid.uuid4())
-        assert row.organization_name == "acme"
+        result = _lookup_org(uuid.uuid4())
+        assert result.organization_name == "acme"
 
     def test_returns_none_on_error(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.side_effect = Exception("timeout")
-        import uuid
+        conn, _ = _make_pg_conn(side_effect=Exception("timeout"))
+        _mod._conn = conn
 
         assert _lookup_org(uuid.uuid4()) is None
 
 
 class TestLookupProject:
     def test_returns_project_row(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.return_value.one.return_value = _make_row(project_name="iot")
-        import uuid
+        row = _make_row(project_name="iot")
+        conn, _ = _make_pg_conn(fetchone_return=row)
+        _mod._conn = conn
 
-        row = _lookup_project(uuid.uuid4(), uuid.uuid4())
-        assert row.project_name == "iot"
+        result = _lookup_project(uuid.uuid4(), uuid.uuid4())
+        assert result.project_name == "iot"
 
     def test_returns_none_on_error(self):
-        _mod._session = MagicMock()
-        _mod._session.execute.side_effect = Exception("timeout")
-        import uuid
+        conn, _ = _make_pg_conn(side_effect=Exception("timeout"))
+        _mod._conn = conn
 
         assert _lookup_project(uuid.uuid4(), uuid.uuid4()) is None
 
@@ -98,7 +107,8 @@ class TestAuthUser:
     def setup_method(self):
         _mod.MQTT_BRIDGE_USERNAME = "cenotoo-bridge"
         _mod.MQTT_BRIDGE_PASSWORD = "secret"
-        _mod._session = MagicMock()
+        conn, _ = _make_pg_conn(fetchone_return=None)
+        _mod._conn = conn
 
     def _post(self, data):
         with _mod.app.test_client() as c:
@@ -118,33 +128,29 @@ class TestAuthUser:
         assert r.status_code == 403
 
     def test_device_valid_write_key_allowed(self):
-        import uuid
-
         project_id = uuid.uuid4()
-        _mod._session.execute.return_value.one.return_value = _make_row(key_type="write")
+        conn, _ = _make_pg_conn(fetchone_return=_make_row(key_type="write"))
+        _mod._conn = conn
         r = self._post({"username": str(project_id), "password": "a" * 64, "clientid": "dev1"})
         assert r.status_code == 200
 
     def test_device_valid_master_key_allowed(self):
-        import uuid
-
         project_id = uuid.uuid4()
-        _mod._session.execute.return_value.one.return_value = _make_row(key_type="master")
+        conn, _ = _make_pg_conn(fetchone_return=_make_row(key_type="master"))
+        _mod._conn = conn
         r = self._post({"username": str(project_id), "password": "b" * 64, "clientid": "dev1"})
         assert r.status_code == 200
 
     def test_device_read_key_denied(self):
-        import uuid
-
         project_id = uuid.uuid4()
-        _mod._session.execute.return_value.one.return_value = _make_row(key_type="read")
+        conn, _ = _make_pg_conn(fetchone_return=_make_row(key_type="read"))
+        _mod._conn = conn
         r = self._post({"username": str(project_id), "password": "c" * 64, "clientid": "dev1"})
         assert r.status_code == 403
 
     def test_device_key_not_found_denied(self):
-        import uuid
-
-        _mod._session.execute.return_value.one.return_value = None
+        conn, _ = _make_pg_conn(fetchone_return=None)
+        _mod._conn = conn
         r = self._post({"username": str(uuid.uuid4()), "password": "d" * 64, "clientid": "dev1"})
         assert r.status_code == 403
 
@@ -162,84 +168,83 @@ class TestAuthAcl:
         _mod.MQTT_BRIDGE_USERNAME = "cenotoo-bridge"
         _mod.MQTT_BRIDGE_PASSWORD = "secret"
         _mod.ORGANIZATION_ID = "00000000-0000-0000-0000-000000000001"
-        _mod._session = MagicMock()
+        conn, _ = _make_pg_conn(fetchone_return=None)
+        _mod._conn = conn
 
     def _post(self, data):
         with _mod.app.test_client() as c:
             return c.post("/auth/acl", json=data)
 
-    def _mock_org_and_project(self, org_name, project_name):
-        results = [
-            _make_row(organization_name=org_name),
-            _make_row(project_name=project_name),
-        ]
-        _mod._session.execute.return_value.one.side_effect = results
+    def _mock_sequential(self, rows):
+        mock_cursor = MagicMock()
+        mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_cursor.__exit__ = MagicMock(return_value=False)
+        mock_cursor.fetchone.side_effect = rows
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        _mod._conn = mock_conn
 
     def test_bridge_allowed_any_topic(self):
         r = self._post({"username": "cenotoo-bridge", "topic": "x/y/z", "acc": 1})
         assert r.status_code == 200
 
     def test_device_publish_valid_topic_allowed(self):
-        import uuid
-
         project_id = uuid.uuid4()
-        self._mock_org_and_project("acme", "iot")
+        self._mock_sequential(
+            [
+                _make_row(organization_name="acme"),
+                _make_row(project_name="iot"),
+            ]
+        )
         r = self._post({"username": str(project_id), "topic": "acme/iot/sensors", "acc": 2})
         assert r.status_code == 200
 
     def test_device_subscribe_denied(self):
-        import uuid
-
         r = self._post({"username": str(uuid.uuid4()), "topic": "acme/iot/sensors", "acc": 1})
         assert r.status_code == 403
 
     def test_device_two_segment_topic_denied(self):
-        import uuid
-
         r = self._post({"username": str(uuid.uuid4()), "topic": "acme/iot", "acc": 2})
         assert r.status_code == 403
 
     def test_device_four_segment_topic_denied(self):
-        import uuid
-
         r = self._post({"username": str(uuid.uuid4()), "topic": "acme/iot/s/x", "acc": 2})
         assert r.status_code == 403
 
     def test_device_empty_segment_denied(self):
-        import uuid
-
         r = self._post({"username": str(uuid.uuid4()), "topic": "acme//sensors", "acc": 2})
         assert r.status_code == 403
 
     def test_wrong_org_denied(self):
-        import uuid
-
         project_id = uuid.uuid4()
-        self._mock_org_and_project("acme", "iot")
+        self._mock_sequential(
+            [
+                _make_row(organization_name="acme"),
+                _make_row(project_name="iot"),
+            ]
+        )
         r = self._post({"username": str(project_id), "topic": "other/iot/sensors", "acc": 2})
         assert r.status_code == 403
 
     def test_wrong_project_denied(self):
-        import uuid
-
         project_id = uuid.uuid4()
-        results = [
-            _make_row(organization_name="acme"),
-            _make_row(project_name="other"),
-        ]
-        _mod._session.execute.return_value.one.side_effect = results
+        self._mock_sequential(
+            [
+                _make_row(organization_name="acme"),
+                _make_row(project_name="other"),
+            ]
+        )
         r = self._post({"username": str(project_id), "topic": "acme/iot/sensors", "acc": 2})
         assert r.status_code == 403
 
     def test_invalid_org_id_config_denied(self):
         _mod.ORGANIZATION_ID = "not-a-uuid"
-        import uuid
-
         r = self._post({"username": str(uuid.uuid4()), "topic": "acme/iot/sensors", "acc": 2})
         assert r.status_code == 403
 
     def test_invalid_username_uuid_denied(self):
-        _mod._session.execute.return_value.one.return_value = _make_row(organization_name="acme")
+        conn, _ = _make_pg_conn(fetchone_return=_make_row(organization_name="acme"))
+        _mod._conn = conn
         r = self._post({"username": "not-a-uuid", "topic": "acme/iot/sensors", "acc": 2})
         assert r.status_code == 403
 
