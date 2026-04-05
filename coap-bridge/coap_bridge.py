@@ -180,71 +180,67 @@ def _build_envelope(coap_path, raw_payload, project_id):
 # ── CoAP resource tree ─────────────────────────────────────────────────────────
 
 
-class _IngestResource(resource.Resource, resource.PathCapable):
-    """PathCapable resource that handles POST /{org}/{project}/{collection}?key=<api_key>.
+async def _handle_ingest(request, loop):
+    """Core ingestion handler — shared by BridgeSite.render and render_to_pipe."""
+    if request.code != aiocoap.POST:
+        return aiocoap.Message(code=Code.METHOD_NOT_ALLOWED)
 
-    BridgeSite.get_child consumes the first path segment and creates this resource,
-    which then receives the remaining path in request.opt.uri_path.
-    """
+    path = request.opt.uri_path or ()
+    # Strip trailing empty segment produced by a trailing slash
+    path = tuple(p for p in path if p)
 
-    def __init__(self, first_segment, loop):
-        super().__init__()
-        self._first = first_segment
-        self._loop = loop
+    if len(path) != 3:
+        return aiocoap.Message(
+            code=Code.BAD_REQUEST,
+            payload=b"URI must be exactly /{org}/{project}/{collection}",
+        )
 
-    async def render(self, request):
-        if request.code != aiocoap.POST:
-            return aiocoap.Message(code=Code.METHOD_NOT_ALLOWED)
+    org, project, collection = path
 
-        # Reconstruct full path — Site consumed first_segment, rest is in uri_path
-        remaining = request.opt.uri_path or ()
-        path = (self._first,) + remaining
+    # Enforce payload size limit before any auth work
+    if len(request.payload) > MAX_PAYLOAD_BYTES:
+        return aiocoap.Message(
+            code=Code.REQUEST_ENTITY_TOO_LARGE,
+            payload=b"Payload exceeds maximum allowed size",
+        )
 
-        if len(path) != 3 or any(not p for p in path):
-            return aiocoap.Message(
-                code=Code.BAD_REQUEST,
-                payload=b"URI must be exactly /{org}/{project}/{collection}",
-            )
+    # Extract API key from URI query string: ?key=<value>
+    raw_key = None
+    for q in request.opt.uri_query or ():
+        if q.startswith("key="):
+            raw_key = q[4:]
+            break
+    if not raw_key:
+        return aiocoap.Message(
+            code=Code.UNAUTHORIZED,
+            payload=b"Missing ?key= query parameter",
+        )
 
-        org, project, collection = path
+    # Authenticate + ACL check (blocking Cassandra → thread pool executor)
+    project_id = await loop.run_in_executor(None, _authenticate, raw_key, org, project)
+    if project_id is None:
+        logger.info("CoAP auth denied for /%s/%s/%s", org, project, collection)
+        return aiocoap.Message(code=Code.UNAUTHORIZED, payload=b"Unauthorized")
 
-        # Enforce payload size limit before any auth work
-        if len(request.payload) > MAX_PAYLOAD_BYTES:
-            return aiocoap.Message(
-                code=Code.REQUEST_ENTITY_TOO_LARGE,
-                payload=b"Payload exceeds maximum allowed size",
-            )
+    # Build envelope and enqueue for Kafka producer thread
+    coap_path = f"{org}/{project}/{collection}"
+    kafka_topic = f"{org}.{project}.{collection}"
+    envelope = _build_envelope(coap_path, request.payload, project_id)
+    _message_queue.put((kafka_topic, json.dumps(envelope).encode("utf-8")))
 
-        # Extract API key from URI query string: ?key=<value>
-        raw_key = None
-        for q in request.opt.uri_query or ():
-            if q.startswith("key="):
-                raw_key = q[4:]
-                break
-        if not raw_key:
-            return aiocoap.Message(
-                code=Code.UNAUTHORIZED,
-                payload=b"Missing ?key= query parameter",
-            )
-
-        # Authenticate + ACL check (blocking Cassandra → thread pool executor)
-        project_id = await self._loop.run_in_executor(None, _authenticate, raw_key, org, project)
-        if project_id is None:
-            logger.info("CoAP auth denied for /%s/%s/%s", org, project, collection)
-            return aiocoap.Message(code=Code.UNAUTHORIZED, payload=b"Unauthorized")
-
-        # Build envelope and enqueue for Kafka producer thread
-        coap_path = f"{org}/{project}/{collection}"
-        kafka_topic = f"{org}.{project}.{collection}"
-        envelope = _build_envelope(coap_path, request.payload, project_id)
-        _message_queue.put((kafka_topic, json.dumps(envelope).encode("utf-8")))
-
-        logger.info("CoAP POST accepted: %s → %s", coap_path, kafka_topic)
-        return aiocoap.Message(code=Code.CHANGED)
+    logger.info("CoAP POST accepted: %s → %s", coap_path, kafka_topic)
+    return aiocoap.Message(code=Code.CHANGED)
 
 
 class BridgeSite(resource.Site):
-    """Site that routes any first path segment to the ingest resource as a fallback."""
+    """Site that routes /{org}/{project}/{collection} to the ingest handler.
+
+    aiocoap's Site dispatches via _find_child_and_pathstripped_message which raises
+    KeyError for unregistered paths — that KeyError is normally converted to
+    error.NotFound in render/render_to_pipe. We intercept at that level so that
+    any path not explicitly registered (i.e. not .well-known/core) falls through
+    to _handle_ingest with the original request intact.
+    """
 
     def __init__(self, loop):
         super().__init__()
@@ -254,12 +250,22 @@ class BridgeSite(resource.Site):
             resource.WKCResource(self.get_resources_as_linkheader),
         )
 
-    def get_child(self, name, request):
+    async def render(self, request):
         try:
-            return super().get_child(name, request)
-        except Exception:
-            # Any unregistered path segment is routed to the ingest resource
-            return _IngestResource(name, self._loop)
+            child, subrequest = self._find_child_and_pathstripped_message(request)
+        except KeyError:
+            return await _handle_ingest(request, self._loop)
+        return await child.render(subrequest)
+
+    async def render_to_pipe(self, request):
+        try:
+            child, subrequest = self._find_child_and_pathstripped_message(request.request)
+        except KeyError:
+            response = await _handle_ingest(request.request, self._loop)
+            request.add_response(response)
+            return
+        request.request = subrequest
+        return await child.render_to_pipe(request)
 
 
 # ── HTTP health endpoint ───────────────────────────────────────────────────────
