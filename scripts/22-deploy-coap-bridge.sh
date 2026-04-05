@@ -35,7 +35,7 @@ info()    { echo -e "  ${BLUE}▸${RESET} $*"; }
 ok()      { echo -e "  ${GREEN}✓${RESET} $*"; }
 warn()    { echo -e "  ${YELLOW}⚠${RESET} $*"; }
 fail()    { echo -e "  ${RED}✗${RESET} $*"; exit 1; }
-step()    { echo -e "\n${BOLD}[$1/5]${RESET} $2\n"; }
+step()    { echo -e "\n${BOLD}[$1/4]${RESET} $2\n"; }
 dimtext() { echo -e "  ${DIM}$*${RESET}"; }
 b64()     { printf '%s' "$1" | base64 -w0; }
 
@@ -61,7 +61,7 @@ kubectl get ns "$NAMESPACE" &>/dev/null \
     || fail "Namespace '$NAMESPACE' not found — run 07-deploy-cenotoo.sh first"
 ok "Namespace '$NAMESPACE' exists"
 
-kubectl get svc cenotoo-cassandra-service -n "$NAMESPACE" &>/dev/null \
+kubectl get svc cenotoo-cassandra -n "$NAMESPACE" &>/dev/null \
     || warn "Cassandra not deployed — coap-bridge will crash-loop until Cassandra is ready"
 
 kubectl get svc cenotoo-kafka-kafka-bootstrap -n "$NAMESPACE" &>/dev/null \
@@ -71,30 +71,8 @@ kubectl get svc cenotoo-kafka-kafka-bootstrap -n "$NAMESPACE" &>/dev/null \
     || fail "coap-bridge/Dockerfile not found in $PROJECT_DIR — is this the cenotoo repo?"
 ok "coap-bridge source: $BRIDGE_SOURCE"
 
-# ── Step 2: Configure secret ─────────────────────────────────────────────────
-step 2 "Configure CoAP bridge credentials"
-
-echo -e "  ${DIM}The bridge needs the organisation UUID to validate CoAP URI segments against${RESET}"
-echo -e "  ${DIM}Cassandra. This is the same ORGANIZATION_ID used by the REST API.${RESET}"
-echo ""
-
-ORGANIZATION_ID="${ORGANIZATION_ID:-}"
-if [ -z "$ORGANIZATION_ID" ]; then
-    echo -en "  ${BLUE}▸${RESET} Organisation UUID (ORGANIZATION_ID): "
-    read -r ORGANIZATION_ID
-fi
-[ -n "$ORGANIZATION_ID" ] || fail "ORGANIZATION_ID must not be empty"
-ok "Organisation ID: $ORGANIZATION_ID"
-
-info "Writing K8s secret cenotoo-coap-credentials ..."
-kubectl create secret generic cenotoo-coap-credentials \
-    --namespace "$NAMESPACE" \
-    --from-literal=organization_id="$ORGANIZATION_ID" \
-    --dry-run=client -o yaml | kubectl apply -f -
-ok "Secret cenotoo-coap-credentials applied"
-
-# ── Step 3: Build image ──────────────────────────────────────────────────────
-step 3 "Build Docker image"
+# ── Step 2: Build image ──────────────────────────────────────────────────────
+step 2 "Build Docker image"
 
 t0=$(date +%s)
 info "Building ${BRIDGE_IMAGE} from ${BRIDGE_SOURCE} ..."
@@ -111,8 +89,8 @@ BRIDGE_SIZE=$(docker image inspect "$BRIDGE_IMAGE" --format='{{.Size}}' 2>/dev/n
 BRIDGE_SIZE_MB=$((BRIDGE_SIZE / 1024 / 1024))
 dimtext "Image size: ${BRIDGE_SIZE_MB}MB"
 
-# ── Step 4: Import into k3s ──────────────────────────────────────────────────
-step 4 "Import into k3s"
+# ── Step 3: Import into k3s ──────────────────────────────────────────────────
+step 3 "Import into k3s"
 
 info "docker save ${BRIDGE_IMAGE} | sudo k3s ctr images import -"
 if ! docker save "$BRIDGE_IMAGE" | sudo k3s ctr images import - 2>&1 | while IFS= read -r line; do
@@ -122,8 +100,8 @@ done; then
 fi
 ok "Imported ${BRIDGE_IMAGE} into k3s containerd"
 
-# ── Step 5: Deploy ───────────────────────────────────────────────────────────
-step 5 "Deploy to k3s"
+# ── Step 4: Deploy ───────────────────────────────────────────────────────────
+step 4 "Deploy to k3s"
 
 info "Applying CoAP bridge manifests ..."
 kubectl apply -f "$MANIFEST_DIR/10-coap/" -n "$NAMESPACE"

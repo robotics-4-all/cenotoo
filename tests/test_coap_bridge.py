@@ -168,35 +168,44 @@ class TestAuthenticate:
         row.project_name = name
         return row
 
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
+    def _make_project_row_with_org(self, name, org_id):
+        row = MagicMock()
+        row.project_name = name
+        row.organization_id = org_id
+        return row
+
     def test_valid_write_key_returns_project_id(self):
         import uuid
 
         project_id = uuid.uuid4()
+        org_id = uuid.uuid4()
         _mod._cassandra_session.execute.side_effect = [
             MagicMock(one=MagicMock(return_value=self._make_key_row(project_id, "write"))),
+            MagicMock(
+                one=MagicMock(return_value=self._make_project_row_with_org("myproject", org_id))
+            ),
             MagicMock(one=MagicMock(return_value=self._make_org_row("myorg"))),
-            MagicMock(one=MagicMock(return_value=self._make_project_row("myproject"))),
         ]
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result == str(project_id)
 
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
     def test_valid_master_key_returns_project_id(self):
         import uuid
 
         project_id = uuid.uuid4()
+        org_id = uuid.uuid4()
         _mod._cassandra_session.execute.side_effect = [
             MagicMock(one=MagicMock(return_value=self._make_key_row(project_id, "master"))),
+            MagicMock(
+                one=MagicMock(return_value=self._make_project_row_with_org("myproject", org_id))
+            ),
             MagicMock(one=MagicMock(return_value=self._make_org_row("myorg"))),
-            MagicMock(one=MagicMock(return_value=self._make_project_row("myproject"))),
         ]
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result == str(project_id)
 
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
     def test_read_key_is_rejected(self):
         import uuid
 
@@ -207,50 +216,52 @@ class TestAuthenticate:
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
 
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
     def test_key_not_found_returns_none(self):
         _mod._cassandra_session.execute.return_value = MagicMock(one=MagicMock(return_value=None))
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
 
-    @patch("coap_bridge.ORGANIZATION_ID", "not-a-uuid")
-    def test_invalid_organization_id_returns_none(self):
-        import uuid
-
-        _mod._cassandra_session.execute.return_value = MagicMock(
-            one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))
-        )
-
-        result = _authenticate("rawkey", "myorg", "myproject")
-        assert result is None
-
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
-    def test_org_name_mismatch_returns_none(self):
+    def test_project_not_found_returns_none(self):
         import uuid
 
         _mod._cassandra_session.execute.side_effect = [
             MagicMock(one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))),
+            MagicMock(one=MagicMock(return_value=None)),
+        ]
+
+        result = _authenticate("rawkey", "myorg", "myproject")
+        assert result is None
+
+    def test_org_name_mismatch_returns_none(self):
+        import uuid
+
+        org_id = uuid.uuid4()
+        _mod._cassandra_session.execute.side_effect = [
+            MagicMock(one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))),
+            MagicMock(
+                one=MagicMock(return_value=self._make_project_row_with_org("myproject", org_id))
+            ),
             MagicMock(one=MagicMock(return_value=self._make_org_row("otherorg"))),
         ]
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
 
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
     def test_project_name_mismatch_returns_none(self):
         import uuid
 
+        org_id = uuid.uuid4()
         _mod._cassandra_session.execute.side_effect = [
             MagicMock(one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))),
-            MagicMock(one=MagicMock(return_value=self._make_org_row("myorg"))),
-            MagicMock(one=MagicMock(return_value=self._make_project_row("otherproject"))),
+            MagicMock(
+                one=MagicMock(return_value=self._make_project_row_with_org("otherproject", org_id))
+            ),
         ]
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
 
-    @patch("coap_bridge.ORGANIZATION_ID", "123e4567-e89b-12d3-a456-426614174000")
     def test_cassandra_error_returns_none(self):
         _mod._cassandra_session.execute.side_effect = Exception("connection refused")
 

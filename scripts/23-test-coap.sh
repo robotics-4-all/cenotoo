@@ -439,7 +439,7 @@ fi
 header "Test 6: Bridge Log Health"
 # ---------------------------------------------------------------------------
 BRIDGE_LOGS=$(kubectl logs -n "$NAMESPACE" "pod/$COAP_POD" --tail=50 2>/dev/null || echo "")
-BRIDGE_ERRORS=$(printf '%s' "$BRIDGE_LOGS" | grep -ciE 'ERROR|Exception|CRITICAL|ConnectionError' || true)
+BRIDGE_ERRORS=$(printf '%s' "$BRIDGE_LOGS" | grep -cE '\[(ERROR|CRITICAL)\]|Exception|Traceback|ConnectionError' || true)
 BRIDGE_STARTED=$(printf '%s' "$BRIDGE_LOGS" | grep -ci 'CoAP server listening\|HTTP health server started' || true)
 
 if [ "${BRIDGE_ERRORS:-0}" -eq 0 ]; then

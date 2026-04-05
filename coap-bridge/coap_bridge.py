@@ -14,6 +14,7 @@ import aiocoap.resource as resource
 from aiocoap.numbers.codes import Code
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import Cluster
+from cassandra.policies import DCAwareRoundRobinPolicy
 from confluent_kafka import KafkaException, Producer
 from flask import Flask
 
@@ -37,7 +38,6 @@ CASSANDRA_CONTACT_POINTS = os.getenv("CASSANDRA_CONTACT_POINTS", "localhost").sp
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
 CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
 CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
-ORGANIZATION_ID = os.getenv("ORGANIZATION_ID", "")
 MAX_PAYLOAD_BYTES = int(os.getenv("MAX_PAYLOAD_BYTES", "1024"))
 
 # ── Global state ──────────────────────────────────────────────────────────────
@@ -51,7 +51,9 @@ _cassandra_session = None
 
 def _connect_cassandra():
     global _cassandra_session
-    kwargs = {}
+    kwargs = {
+        "load_balancing_policy": DCAwareRoundRobinPolicy(),
+    }
     if CASSANDRA_USERNAME and CASSANDRA_PASSWORD:
         kwargs["auth_provider"] = PlainTextAuthProvider(CASSANDRA_USERNAME, CASSANDRA_PASSWORD)
     cluster = Cluster(CASSANDRA_CONTACT_POINTS, port=CASSANDRA_PORT, **kwargs)
@@ -85,12 +87,11 @@ def _lookup_org(org_id):
         return None
 
 
-def _lookup_project(project_id, org_id):
+def _lookup_project(project_id):
     try:
         return _cassandra_session.execute(
-            "SELECT project_name FROM project "
-            "WHERE id=%s AND organization_id=%s LIMIT 1 ALLOW FILTERING",
-            (project_id, org_id),
+            "SELECT project_name, organization_id FROM project WHERE id=%s LIMIT 1 ALLOW FILTERING",
+            (project_id,),
         ).one()
     except Exception as exc:
         logger.error("Cassandra error (project lookup): %s", exc)
@@ -98,29 +99,31 @@ def _lookup_project(project_id, org_id):
 
 
 def _authenticate(raw_key, org_segment, project_segment):
-    """Validate API key and ACL. Returns project_id string on success, None on failure."""
+    """Validate API key and ACL. Returns project_id string on success, None on failure.
+
+    Resolves org and project entirely from the API key — no ORGANIZATION_ID env var needed.
+    This makes the bridge multi-tenant: any org's devices can use it provided they have
+    a valid write/master key and their URI segments match their registered names.
+    """
     # Step 1: key lookup — must be write or master type
     row = _lookup_key(_hash_key(raw_key))
     if row is None or row.key_type not in ("write", "master"):
         logger.debug("CoAP auth denied: key not found or insufficient type")
         return None
 
-    # Step 2: resolve org UUID and validate org name against URI segment
-    try:
-        org_id = uuid.UUID(ORGANIZATION_ID)
-    except ValueError:
-        logger.error("ORGANIZATION_ID is not a valid UUID: %s", ORGANIZATION_ID)
+    # Step 2: resolve project → get organization_id + project_name
+    project = _lookup_project(row.project_id)
+    if project is None:
+        logger.debug("CoAP ACL denied: project %s not found", row.project_id)
+        return None
+    if project.project_name != project_segment:
+        logger.debug("CoAP ACL denied: project segment %r does not match", project_segment)
         return None
 
-    org = _lookup_org(org_id)
+    # Step 3: resolve org name and validate against URI segment
+    org = _lookup_org(project.organization_id)
     if org is None or org.organization_name != org_segment:
         logger.debug("CoAP ACL denied: org segment %r does not match", org_segment)
-        return None
-
-    # Step 3: validate project name against URI segment
-    project = _lookup_project(row.project_id, org_id)
-    if project is None or project.project_name != project_segment:
-        logger.debug("CoAP ACL denied: project segment %r does not match", project_segment)
         return None
 
     return str(row.project_id)

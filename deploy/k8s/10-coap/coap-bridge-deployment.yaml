@@ -52,11 +52,6 @@ spec:
                 secretKeyRef:
                   name: cenotoo-cassandra-superuser
                   key: password
-            - name: ORGANIZATION_ID
-              valueFrom:
-                secretKeyRef:
-                  name: cenotoo-coap-credentials
-                  key: organization_id
             - name: MAX_PAYLOAD_BYTES
               value: "1024"
           livenessProbe:
