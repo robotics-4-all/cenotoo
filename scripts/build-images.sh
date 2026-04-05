@@ -17,6 +17,7 @@ CASSANDRA_WRITER_IMAGE="kafka-cassandra-consumer:latest"
 LIVE_CONSUMER_IMAGE="kafka-live-consumer:latest"
 MQTT_AUTH_IMAGE="mqtt-auth:latest"
 MQTT_BRIDGE_IMAGE="mqtt-bridge:latest"
+COAP_BRIDGE_IMAGE="coap-bridge:latest"
 API_IMAGE="cenotoo-api:latest"
 
 CENOTOO_API_DIR="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null && pwd || echo "")}"
@@ -58,6 +59,7 @@ build_and_load "$PROJECT_DIR/kafka-to-cassandra" "$CASSANDRA_WRITER_IMAGE"
 build_and_load "$PROJECT_DIR/kafka-live-consumer" "$LIVE_CONSUMER_IMAGE"
 build_and_load "$PROJECT_DIR/mqtt-auth" "$MQTT_AUTH_IMAGE"
 build_and_load "$PROJECT_DIR/mqtt-bridge" "$MQTT_BRIDGE_IMAGE"
+build_and_load "$PROJECT_DIR/coap-bridge" "$COAP_BRIDGE_IMAGE"
 
 if [ -n "$CENOTOO_API_DIR" ] && [ -d "$CENOTOO_API_DIR" ]; then
     build_and_load "$CENOTOO_API_DIR" "$API_IMAGE"
@@ -70,5 +72,5 @@ echo ""
 ok "All images built successfully"
 if [ "$LOAD_K3S" = "true" ]; then
     ok "All images imported into k3s containerd"
-    info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|cenotoo-api'"
+    info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|coap-bridge|cenotoo-api'"
 fi
