@@ -4,6 +4,7 @@ import os
 import re
 import signal
 import time
+import uuid
 from datetime import datetime
 
 from cassandra import InvalidRequest
@@ -56,6 +57,11 @@ def _coerce_value(value, cql_type):
         if type_name == "timestamp":
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                pass
+        elif type_name in ("uuid", "timeuuid"):
+            try:
+                return uuid.UUID(value)
             except (ValueError, AttributeError):
                 pass
     return value
@@ -188,7 +194,17 @@ def consume_and_store():
             prepared = prepared_cache[col_key]
             type_map = {meta[2]: meta[3] for meta in (prepared.column_metadata or [])}
             values = [_coerce_value(message_data[col], type_map.get(col)) for col in columns]
-            session.execute(prepared, values)
+            try:
+                session.execute(prepared, values)
+            except TypeError as exc:
+                logger.warning(
+                    "Skipping message — type coercion failed for %s.%s: %s",
+                    keyspace_name,
+                    table_name,
+                    exc,
+                )
+                consumer.commit(message=msg, asynchronous=False)
+                continue
 
             # Commit offset after successful write
             consumer.commit(message=msg, asynchronous=False)

@@ -5,6 +5,11 @@
 # Creates the metadata keyspace and all API tables (user, organization,
 # project, collection, api_keys, revoked_tokens).
 #
+# DEPRECATED: Metadata (organizations, projects, collections, API keys, users,
+# devices, rules) is now stored in PostgreSQL, not Cassandra.
+# Cassandra retains time-series (sensor) data only.
+# Run init-postgres-schema.sh to initialize the metadata database.
+#
 # Safe to re-run — all statements use IF NOT EXISTS.
 #
 # Called automatically by 07-deploy-cenotoo.sh, or run standalone:
@@ -45,6 +50,9 @@ wait_for_cql() {
     fail "CQL not responsive on $CASSANDRA_POD within ${CQL_TIMEOUT}s"
 }
 
+warn "Metadata is now stored in PostgreSQL — run init-postgres-schema.sh for the metadata DB"
+warn "This script only initializes the Cassandra keyspace used for time-series data"
+echo ""
 info "Initializing Cassandra schema (namespace=$NAMESPACE, rf=$CASSANDRA_RF)"
 
 wait_for_cql

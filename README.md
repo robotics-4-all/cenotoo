@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>The open data backbone for IoT and cyber-physical systems.</strong><br/>
-  Ingest from MQTT or HTTP · Stream through Kafka · Persist in Cassandra · Query via REST
+  Ingest from MQTT, CoAP, or HTTP &nbsp;·&nbsp; Stream through Kafka &nbsp;·&nbsp; Persist in Cassandra &nbsp;·&nbsp; Query via REST
 </p>
 
 <p align="center">
@@ -22,13 +22,16 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11" />
   <img src="https://img.shields.io/badge/Kafka-KRaft_(no_ZooKeeper)-blue?logo=apachekafka&logoColor=white" alt="Kafka KRaft" />
   <img src="https://img.shields.io/badge/Cassandra-4.x-1287B1?logo=apachecassandra&logoColor=white" alt="Cassandra" />
   <img src="https://img.shields.io/badge/Flink-1.18-E6526F?logo=apacheflink&logoColor=white" alt="Flink" />
   <img src="https://img.shields.io/badge/FastAPI-REST_API-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/PostgreSQL-Metadata-336791?logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white" alt="Mosquitto" />
   <img src="https://img.shields.io/badge/Kubernetes-k3s-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" />
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
+  <img src="https://img.shields.io/badge/tests-493_passing-brightgreen" alt="493 tests passing" />
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-Apache_2.0-orange?logo=apache&logoColor=white" alt="Apache 2.0" />
   </a>
@@ -38,45 +41,22 @@
 
 ## What is Cenotoo?
 
-Cenotoo is a **production-ready Big Data Management System (BDMS)** purpose-built for IoT and cyber-physical systems. It packages Apache Kafka, Cassandra, and Flink into a single opinionated platform — with an MQTT bridge, a REST API, real-time SSE streaming, and a device shadow system on top.
+Cenotoo is a **self-hosted, production-ready data platform** built for IoT and cyber-physical systems. It wires together Apache Kafka, Cassandra, Flink, PostgreSQL, and FastAPI into a single cohesive stack — with MQTT and CoAP ingestion bridges, real-time SSE streaming, a device shadow system, and full Kubernetes observability on top.
 
-Connect physical devices via MQTT or HTTP. Route data through Kafka. Process it with Flink. Persist it in Cassandra. Query or stream it through a REST API. **Deploy locally in 2 minutes or to production Kubernetes in 10.**
+There is no hosted version. You own your data, your infrastructure, and your pipeline.
 
----
-
-## Provided Functionality
-
-| # | Feature | Status |
-|---|---------|:------:|
-| 1 | **HTTP Data Ingestion** — single records or batches via `POST /send_data`, schema-validated | ✅ |
-| 2 | **MQTT Device Ingestion** — Mosquitto broker + bridge auto-routes any MQTT topic to Kafka | ✅ |
-| 3 | **Historical Data Query** — `GET /get_data` with field filters, time range, ordering, and pagination | ✅ |
-| 4 | **Time-series Statistics** — `avg`, `max`, `min`, `sum`, `count`, `distinct` over configurable intervals | ✅ |
-| 5 | **SSE Real-time Streaming** — `GET /stream` delivers live Kafka messages as Server-Sent Events | ✅ |
-| 6 | **Device Registry** — `POST/GET/PUT/DELETE /devices` per project | ✅ |
-| 7 | **Device Shadow / Twin** — separate `desired` and `reported` state per device; automatic `delta` computation | ✅ |
-| 8 | **Schema Evolution** — `PATCH /schema` adds or removes Cassandra columns with zero downtime | ✅ |
-| 9 | **JWT + API Key Auth** — bearer tokens for users; scoped keys (`read`/`write`/`master`) for devices and services | ✅ |
-| 10 | **Stream Processing** — Apache Flink 1.18, Kafka source table, exactly-once semantics | ✅ |
-| 11 | **Observability** — Prometheus metrics, Grafana dashboards, alerting rules — deployed in one script | ✅ |
-| 12 | **Rate Limiting** — configurable per-endpoint limits via `slowapi` | ✅ |
-| 13 | **OpenTelemetry Tracing** — opt-in distributed tracing via `OTLP_ENDPOINT` | ✅ |
-| 14 | **End-to-end Security** — SCRAM-SHA-512 on Kafka, `PasswordAuthenticator` on Cassandra | ✅ |
-| 15 | **Dual Deployment** — same stack, same config: Docker Compose (dev) or Kubernetes (prod) | ✅ |
-| 16 | **Collection Metrics** — `GET /metrics` for health, record count, and last ingested timestamp | ✅ |
-| 17 | **Data Export** — `GET /export` to download collection data in CSV or Parquet format | ✅ |
-| 18 | **Bulk Import** — `POST /import` to upload CSV or JSON files with partial success handling | ✅ |
-| 19 | **Webhooks & Alerts** — `CRUD /rules` to trigger HTTP webhooks based on data thresholds | ✅ |
+**Deploy locally in 2 minutes with Docker Compose. Deploy to production Kubernetes in 10.**
 
 ---
 
-## Architecture
+## 🗺️ Architecture
 
 ```
                     ┌─────────────────────────────────────────────────────────────┐
                     │                     Cenotoo Platform                        │
                     │                                                             │
   MQTT Devices ───► │  Mosquitto ──► MQTT Bridge ──────────────────┐             │
+  CoAP Devices ───► │  CoAP Bridge ─────────────────────────────── ┤             │
                     │                                               ▼             │
   HTTP Clients ───► │  REST API (FastAPI) ──────────────►  Kafka (KRaft)          │
                     │  ├─ POST /send_data                    │         │          │
@@ -87,6 +67,7 @@ Connect physical devices via MQTT or HTTP. Route data through Kafka. Process it 
                     │  ├─ GET  /shadow          │          └────┬────┘            │
                     │  └─ PATCH /schema         │               ▼                 │
                     │                           └────────  Cassandra              │
+                    │  PostgreSQL (metadata) ◄──────────── REST API               │
                     │                                                             │
                     │  ┌──────────────────────────────────────────────────────┐  │
                     │  │         Prometheus  ·  Grafana  ·  Alert Rules       │  │
@@ -94,15 +75,32 @@ Connect physical devices via MQTT or HTTP. Route data through Kafka. Process it 
                     └─────────────────────────────────────────────────────────────┘
 ```
 
-| | Docker Compose | Kubernetes (k3s) |
-|---|---|---|
-| **Best for** | Local development and testing | Staging and production |
-| **Kafka** | 2 brokers, KRaft — no ZooKeeper | Strimzi operator + KafkaNodePools |
-| **Cassandra** | 2 nodes, local volumes | StatefulSet + persistent storage |
-| **Flink** | Single JobManager | Operator-managed, K8s-native HA |
-| **MQTT** | Mosquitto + bridge container | Deployment + bridge container |
-| **Monitoring** | — | kube-prometheus-stack |
-| **Setup time** | ~2 minutes | ~10 minutes |
+---
+
+## ✅ Features
+
+| # | Feature | Endpoint | Status |
+|---|---------|----------|:------:|
+| 1 | **HTTP Data Ingestion** — single records or JSON arrays, schema-validated against collection definition | `POST /send_data` | ✅ |
+| 2 | **MQTT Ingestion** — Mosquitto broker + bridge auto-routes any topic to Kafka; zero device-side config | broker port `1883` | ✅ |
+| 3 | **CoAP Ingestion** — lightweight UDP ingestion for constrained devices with API key auth + HTTP health probe | `UDP /{org}/{project}/{collection}` | ✅ |
+| 4 | **Historical Data Query** — field filters, time range, ordering, and pagination | `GET /get_data` | ✅ |
+| 5 | **Time-series Statistics** — `avg`, `max`, `min`, `sum`, `count`, `distinct`, percentiles `p50`–`p99` over configurable intervals | `GET /statistics` | ✅ |
+| 6 | **SSE Real-time Streaming** — live Kafka messages as Server-Sent Events with keepalive; starts from latest offset | `GET /stream` | ✅ |
+| 7 | **Device Registry** — full CRUD device management scoped per project | `POST/GET/PUT/DELETE /devices` | ✅ |
+| 8 | **Device Shadow / Twin** — separate `desired` and `reported` state per device; automatic `delta` computation | `GET/PUT /shadow` | ✅ |
+| 9 | **Schema Evolution** — add or remove Cassandra columns on live tables with zero downtime | `PATCH /schema` | ✅ |
+| 10 | **JWT + API Key Auth** — bearer tokens for users; scoped keys (`read`/`write`/`master`) for devices and services | `POST /token` | ✅ |
+| 11 | **Stream Processing** — Apache Flink 1.18, Kafka source table, exactly-once semantics | Flink SQL | ✅ |
+| 12 | **Observability** — Prometheus metrics, Grafana dashboards, alerting rules — all deployed in one script | kube-prometheus-stack | ✅ |
+| 13 | **Rate Limiting** — configurable per-endpoint request limits | via `slowapi` | ✅ |
+| 14 | **OpenTelemetry Tracing** — opt-in distributed tracing with any OTLP-compatible backend | `OTLP_ENDPOINT` env var | ✅ |
+| 15 | **End-to-end Security** — SCRAM-SHA-512 on Kafka, `PasswordAuthenticator` on Cassandra, bcrypt user passwords | — | ✅ |
+| 16 | **Dual Deployment** — identical config, two targets: Docker Compose for dev, Kubernetes for production | — | ✅ |
+| 17 | **Collection Metrics** — health status, record count, and last ingested timestamp per collection | `GET /metrics` | ✅ |
+| 18 | **Data Export** — download full collection data as CSV or Parquet | `GET /export` | ✅ |
+| 19 | **Bulk Import** — upload CSV or JSON files with partial success handling and per-record error reporting | `POST /import` | ✅ |
+| 20 | **Webhooks & Alerts** — define threshold rules that fire HTTP webhooks when data conditions are met | `CRUD /rules` | ✅ |
 
 ---
 
@@ -113,34 +111,36 @@ Connect physical devices via MQTT or HTTP. Route data through Kafka. Process it 
 ```bash
 # 1. Configure
 cp .env.example .env
-python scripts/generate-cluster-id.py   # copy output into .env as KAFKA_CLUSTER_ID
+python scripts/generate-cluster-id.py   # paste output into .env as KAFKA_CLUSTER_ID
 
-# 2. Build images and launch
+# 2. Build images and launch (node 1)
 bash scripts/build-images.sh
-docker-compose up -d kafka1 cassandra1 jobmanager taskmanager   # node 1
-docker-compose up -d kafka2 cassandra2                          # node 2 (optional)
+docker-compose up -d kafka1 cassandra1 jobmanager taskmanager
 
-# 3. Initialize Cassandra schema
+# 3. Optionally start node 2
+docker-compose up -d kafka2 cassandra2
+
+# 4. Initialize schema
 pip install -r requirements.txt
 python cassandra/create_cassandra_tables.py
 
-# 4. Verify — all containers should show (healthy)
+# 5. Verify — all containers should show (healthy)
 docker ps
 ```
 
 ### Option B — Kubernetes / k3s (10 minutes)
 
-Each script is **idempotent** — safe to re-run and picks up where it left off:
+Every script is **idempotent** — safe to re-run and picks up where it left off.
 
 ```bash
-sudo ./scripts/01-install-k3s.sh                # k3s + Helm
-sudo ./scripts/02-install-cert-manager.sh       # TLS (K8ssandra prerequisite)
-sudo ./scripts/03-install-strimzi-operator.sh   # Kafka operator
-sudo ./scripts/04-install-k8ssandra-operator.sh # Cassandra operator
-sudo ./scripts/05-install-flink-operator.sh     # Flink operator
-sudo ./scripts/06-install-monitoring.sh         # Prometheus + Grafana (optional)
-sudo ./scripts/07-deploy-cenotoo.sh             # Deploy the platform
-./scripts/08-deploy-api.sh                      # Build + deploy the REST API
+sudo ./scripts/01-install-k3s.sh                 # k3s + Helm
+sudo ./scripts/02-install-cert-manager.sh        # TLS (K8ssandra prerequisite)
+sudo ./scripts/03-install-strimzi-operator.sh    # Kafka operator
+sudo ./scripts/04-install-k8ssandra-operator.sh  # Cassandra operator
+sudo ./scripts/05-install-flink-operator.sh      # Flink operator
+sudo ./scripts/06-install-monitoring.sh          # Prometheus + Grafana (optional)
+sudo ./scripts/07-deploy-cenotoo.sh              # Deploy the platform
+./scripts/08-deploy-api.sh                       # Build + deploy the REST API
 ```
 
 **Verify:**
@@ -151,13 +151,13 @@ curl http://${NODE_IP}:30080/health   # → {"status":"ok"}
 curl http://${NODE_IP}:30080/docs     # Swagger UI
 ```
 
-For the full walkthrough, see the **[Deployment Guide](docs/k3s-setup.md)**.
+For the full walkthrough see the **[Deployment Guide](docs/k3s-setup.md)**.
 
 ---
 
-## REST API
+## 📡 REST API
 
-The [cenotoo-api](https://github.com/robotics-4-all/cenotoo-api) repository provides the full REST interface. After deployment, Swagger UI is available at `http://<node-ip>:30080/docs`.
+The [cenotoo-api](https://github.com/robotics-4-all/cenotoo-api) repository provides the full REST interface. Swagger UI is available at `http://<node-ip>:30080/docs` after deployment.
 
 ### Core Workflow
 
@@ -169,8 +169,8 @@ TOKEN=$(curl -s -X POST "$BASE/token" \
   -d "username=admin&password=<pass>" | jq -r .access_token)
 
 # Create a project and collection
-PROJECT=$(curl -s -X POST "$BASE/projects" -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
+PROJECT=$(curl -s -X POST "$BASE/projects" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"project_name":"smart_building","description":"","tags":[]}' \
   | jq -r '.id.project_id')
 
@@ -188,63 +188,105 @@ curl -X POST "$BASE/projects/$PROJECT/collections/<cid>/send_data" \
   -H "X-API-Key: $WRITE_KEY" -H "Content-Type: application/json" \
   -d '{"temp": 22.5, "room": "lab-01"}'
 
-# Stream live data
-curl -N "$BASE/projects/$PROJECT/collections/<cid>/stream" -H "X-API-Key: $WRITE_KEY"
+# Subscribe to the live stream
+curl -N "$BASE/projects/$PROJECT/collections/<cid>/stream" \
+  -H "X-API-Key: $WRITE_KEY"
 ```
 
 ### Endpoint Reference
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/projects/{pid}/collections/{cid}/send_data` | `POST` | Ingest single or batch records |
-| `/projects/{pid}/collections/{cid}/get_data` | `GET` | Query with filters, pagination, time range |
-| `/projects/{pid}/collections/{cid}/statistics` | `GET` | Aggregated stats over time intervals |
-| `/projects/{pid}/collections/{cid}/stream` | `GET` | Live SSE stream directly from Kafka |
-| `/projects/{pid}/collections/{cid}/schema` | `PATCH` | Add or remove schema fields, zero downtime |
-| `/projects/{pid}/devices` | `POST/GET` | Register and list devices |
-| `/projects/{pid}/devices/{did}` | `GET/PUT/DELETE` | Device CRUD |
-| `/projects/{pid}/devices/{did}/shadow` | `GET` | Full shadow: `desired`, `reported`, `delta` |
-| `/projects/{pid}/devices/{did}/shadow/desired` | `PUT` | Set desired state (cloud → device) |
-| `/projects/{pid}/devices/{did}/shadow/reported` | `PUT` | Update reported state (device → cloud) |
+| Endpoint | Method | Required Scope | Description |
+|----------|--------|---------------|-------------|
+| `/token` | `POST` | credentials | Obtain JWT access + refresh tokens |
+| `/projects` | `POST/GET` | JWT | Create and list projects |
+| `/projects/{pid}/keys` | `POST/GET` | JWT | Create and list scoped API keys |
+| `/projects/{pid}/collections` | `POST/GET` | JWT | Create and list collections |
+| `/projects/{pid}/collections/{cid}/send_data` | `POST` | `write` | Ingest single or batch records |
+| `/projects/{pid}/collections/{cid}/get_data` | `GET` | `read` | Query with filters, pagination, time range |
+| `/projects/{pid}/collections/{cid}/statistics` | `GET` | `read` | Aggregated stats and percentiles over intervals |
+| `/projects/{pid}/collections/{cid}/stream` | `GET` | `read` | Live SSE stream from Kafka |
+| `/projects/{pid}/collections/{cid}/schema` | `PATCH` | `master` | Add or remove fields with zero downtime |
+| `/projects/{pid}/collections/{cid}/metrics` | `GET` | `read` | Health, record count, last ingested timestamp |
+| `/projects/{pid}/collections/{cid}/export` | `GET` | `read` | Download as CSV or Parquet |
+| `/projects/{pid}/collections/{cid}/import` | `POST` | `write` | Bulk upload CSV or JSON |
+| `/projects/{pid}/collections/{cid}/rules` | `CRUD` | `master` | Webhook alert rules |
+| `/projects/{pid}/devices` | `POST/GET` | `master` | Register and list devices |
+| `/projects/{pid}/devices/{did}` | `GET/PUT/DELETE` | `master` | Device CRUD |
+| `/projects/{pid}/devices/{did}/shadow` | `GET` | `read` | Full shadow: `desired`, `reported`, `delta` |
+| `/projects/{pid}/devices/{did}/shadow/desired` | `PUT` | `write` | Set desired state (cloud → device) |
+| `/projects/{pid}/devices/{did}/shadow/reported` | `PUT` | `write` | Update reported state (device → cloud) |
+
+### API Key Scopes
+
+| Scope | Permissions |
+|-------|-------------|
+| `read` | Query data, statistics, stream, metrics, export, shadow |
+| `write` | All `read` permissions + ingest data, bulk import, update shadow reported state |
+| `master` | All `write` permissions + schema changes, device management, webhook rules |
 
 ---
 
-## MQTT Ingestion
+## 🔌 Device Ingestion
 
-Any MQTT-capable device can start publishing with zero integration code:
+### MQTT
+
+Any MQTT-capable device publishes with zero integration code. The bridge subscribes to `#` and routes every message automatically:
 
 ```bash
-# Publish from any client — the bridge routes it to Kafka automatically
 mosquitto_pub -h <broker-ip> -p 1883 \
   -t "myorg/myproject/sensors" \
   -m '{"temp": 22.5, "humidity": 58, "node": "roof-01"}'
 ```
 
-The MQTT bridge subscribes to `#`, wraps each payload in a canonical JSON envelope, and produces to the Kafka topic `{org}.{project}.{collection}`. From there the Consumer Bridge writes to Cassandra and the SSE endpoint streams to subscribers — automatically.
+Topic format `{org}/{project}/{collection}` maps to Kafka topic `{org}.{project}.{collection}` → Cassandra table `{project}_{collection}` in keyspace `{org}`.
+
+### CoAP
+
+Lightweight UDP ingestion for constrained devices. API key auth is inline — no separate handshake:
+
+```bash
+coap-client -m post \
+  "coap://<broker-ip>/myorg/myproject/sensors?key=<api_key>" \
+  -e '{"temp": 22.5}'
+```
+
+An HTTP health probe is available at `http://<coap-bridge-ip>:8080/health`.
 
 ---
 
-## Integration Tests
+## 🗄️ System Components
 
-All three high-level feature suites run against a live cluster:
+| Component | Role | Technology | K8s Operator |
+|-----------|------|------------|:------------:|
+| Kafka | Message streaming backbone | Apache Kafka 3.x (KRaft) | Strimzi |
+| Cassandra | Time-series data persistence | Apache Cassandra 4.x | K8ssandra |
+| PostgreSQL | Metadata — orgs, projects, users, API keys, rules | PostgreSQL 15 | StatefulSet |
+| Flink | Stream processing | Apache Flink 1.18 | Flink Operator |
+| REST API | HTTP interface + auth | FastAPI + Pydantic | Deployment |
+| MQTT Bridge | MQTT → Kafka routing | Python + paho-mqtt | StatefulSet |
+| CoAP Bridge | CoAP → Kafka routing | Python + aiocoap | Deployment |
+| Consumer Bridge | Kafka → Cassandra writer | Python + confluent-kafka | Deployment |
+| Live Consumer | Kafka → SSE relay | Python + confluent-kafka | Deployment |
+| Mosquitto | MQTT broker | Eclipse Mosquitto | StatefulSet |
+| Prometheus | Metrics collection | kube-prometheus-stack | — |
+| Grafana | Dashboards + alerting | kube-prometheus-stack | — |
 
-```bash
-export CENOTOO_ADMIN_PASSWORD=<your-password>
+### Docker Compose vs Kubernetes
 
-bash scripts/14-test-sse-stream.sh        # 12 SSE streaming tests
-bash scripts/15-test-device-management.sh # 24 device registry + shadow tests
-bash scripts/16-test-schema-evolution.sh  # 21 schema evolution tests
-```
-
-Unit tests (no infrastructure required):
-
-```bash
-pytest tests/ -v
-```
+| | Docker Compose | Kubernetes / k3s |
+|---|---|---|
+| **Best for** | Local development, CI, edge nodes | Staging and production |
+| **Kafka** | 2 brokers, KRaft — no ZooKeeper | Strimzi + KafkaNodePools, SCRAM-SHA-512 |
+| **Cassandra** | 2 nodes, local volumes | K8ssandra + Medusa backups, PasswordAuthenticator |
+| **PostgreSQL** | Single container | StatefulSet + persistent volume |
+| **Flink** | Single JobManager (no HA) | K8s-native HA via Flink Operator |
+| **MQTT** | Mosquitto + bridge container | StatefulSet + mqtt-auth sidecar |
+| **Monitoring** | — | kube-prometheus-stack (one script) |
+| **Setup time** | ~2 minutes | ~10 minutes |
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 ### Environment Variables
 
@@ -252,45 +294,92 @@ pytest tests/ -v
 |----------|-------------|---------|
 | `KAFKA_BROKER1_IP` | Kafka broker 1 address | — |
 | `KAFKA_BROKER2_IP` | Kafka broker 2 address | — |
-| `KAFKA_CLUSTER_ID` | KRaft cluster ID — generate once with `scripts/generate-cluster-id.py` | — |
+| `KAFKA_CLUSTER_ID` | KRaft cluster ID (generate with `scripts/generate-cluster-id.py`) | — |
 | `KAFKA_USERNAME` | SASL username | `admin` |
 | `KAFKA_PASSWORD` | SASL password | — |
 | `CASSANDRA_SEEDS` | Cassandra contact points | — |
 | `CASSANDRA_DC` | Datacenter name | `datacenter1` |
 | `CASSANDRA_RF` | Replication factor | `2` |
+| `POSTGRES_HOST` | PostgreSQL host | `localhost` |
+| `POSTGRES_PORT` | PostgreSQL port | `5432` |
+| `POSTGRES_DB` | Database name | `cenotoo` |
+| `POSTGRES_USER` | Database user | `cenotoo` |
+| `POSTGRES_PASSWORD` | Database password | — |
 
 ### Naming Conventions
 
-| Thing | Pattern | Example |
-|-------|---------|---------|
+| Entity | Pattern | Example |
+|--------|---------|---------|
 | Kafka topic | `{org}.{project}.{collection}` | `acme.iot.sensors` |
 | Cassandra keyspace | `{org}` | `acme` |
 | Cassandra table | `{project}_{collection}` | `iot_sensors` |
 | Consumer group | `{topic}_cassandra_writer` | `acme.iot.sensors_cassandra_writer` |
+| API key scope | `read` / `write` / `master` | scoped per project |
 
 ---
 
-## Tech Stack
+## 🧪 Testing
 
-| Component | Technology | Notes |
-|-----------|------------|-------|
-| Message Streaming | Apache Kafka (KRaft) | No ZooKeeper |
-| Stream Processing | Apache Flink 1.18 | Stateful, exactly-once |
-| Persistence | Apache Cassandra 4.x | Horizontally scalable |
-| REST API | FastAPI + Pydantic | Swagger UI included |
-| MQTT Broker | Eclipse Mosquitto | Bridge → Kafka |
-| Container Orchestration | Kubernetes (k3s) | Lightweight, production-ready |
-| Kafka Operator | Strimzi 0.45+ | CRD-driven, full KRaft support |
-| Cassandra Operator | K8ssandra | Medusa backup, TLS |
-| Flink Operator | Apache Flink K8s Operator 1.10+ | K8s-native HA |
-| Monitoring | Prometheus + Grafana | kube-prometheus-stack |
-| CI/CD | GitHub Actions | Lint → typecheck → test |
+Run all 13 integration suites against a live cluster with a single command:
+
+```bash
+export CENOTOO_ADMIN_PASSWORD=<your-password>
+bash scripts/run-all-tests.sh
+```
+
+| Suite | Script | Tests |
+|-------|--------|------:|
+| Smoke | `smoke-test.sh` | 16 |
+| Infrastructure | `integration-test.sh` | — |
+| PostgreSQL | `25-test-postgres.sh` | 33 |
+| MQTT | `13-test-mqtt.sh` | — |
+| CoAP | `23-test-coap.sh` | 24 |
+| SSE Streaming | `14-test-sse-stream.sh` | 12 |
+| Device Management | `15-test-device-management.sh` | 24 |
+| Schema Evolution | `16-test-schema-evolution.sh` | 21 |
+| Collection Metrics | `17-test-collection-metrics.sh` | — |
+| Data Export | `18-test-data-export.sh` | — |
+| Bulk Import | `19-test-bulk-import.sh` | — |
+| Webhooks | `20-test-webhooks.sh` | — |
+| Statistics | `21-test-statistics.sh` | 34 |
+
+Unit tests (no infrastructure required):
+
+```bash
+pytest tests/ -v   # 493 tests — mocks Kafka and Cassandra
+```
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology | Notes |
+|-------|------------|-------|
+| Message Streaming | Apache Kafka (KRaft) | No ZooKeeper; replication factor 2 |
+| Stream Processing | Apache Flink 1.18 | Exactly-once; K8s-native HA in production |
+| Time-series Storage | Apache Cassandra 4.x | `NetworkTopologyStrategy`, partition key `(day, key)` |
+| Metadata Storage | PostgreSQL 15 | Orgs, projects, users, API keys, device registry, rules |
+| REST API | FastAPI + Pydantic | Swagger UI, ReDoc, OAuth2, rate limiting |
+| MQTT Broker | Eclipse Mosquitto | Anonymous dev / SASL production |
+| CoAP Bridge | aiocoap | Plaintext UDP only (DTLS experimental, not supported) |
+| Kafka Operator | Strimzi 0.45+ | KRaft, KafkaNodePools, SCRAM-SHA-512 ACLs |
+| Cassandra Operator | K8ssandra | Medusa backups, TLS, PasswordAuthenticator |
+| Flink Operator | Apache Flink K8s Operator 1.10+ | K8s-native HA, PVC-backed checkpoints |
+| Observability | Prometheus + Grafana | JMX exporters for Kafka + Flink, alerting rules |
+| Tracing | OpenTelemetry | Opt-in via `OTLP_ENDPOINT` |
+| Rate Limiting | slowapi | Per-endpoint, configurable |
+| CI/CD | GitHub Actions | Lint → typecheck → 493 tests on push/PR |
 
 ---
 
 ## Contributing
 
-Contributions, issues, and feature requests are welcome. Please check [open issues](../../issues) before opening a new one.
+Contributions, issues, and feature requests are welcome.
+
+- Check [open issues](../../issues) before opening a new one
+- Follow the existing code style: `ruff check .` and `ruff format .`
+- All Python code must pass `mypy` and the full test suite
+- New features must include integration tests in `scripts/`
 
 ---
 

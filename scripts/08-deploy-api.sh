@@ -146,7 +146,7 @@ dimtext "Image size: ${IMAGE_SIZE_MB}MB"
 step 4 "Import into k3s"
 
 info "docker save ${FULL_IMAGE} | sudo k3s ctr images import -"
-if ! docker save "$FULL_IMAGE" | sudo k3s ctr images import - 2>&1 | while IFS= read -r line; do
+if !         docker save "$FULL_IMAGE" | sudo k3s ctr -n k8s.io images import - 2>&1 | while IFS= read -r line; do
     echo -e "  ${DIM}${line}${RESET}"
 done; then
     fail "k3s import failed"

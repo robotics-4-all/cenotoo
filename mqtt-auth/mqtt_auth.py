@@ -9,6 +9,8 @@ import psycopg2
 import psycopg2.extras
 from flask import Flask, request
 
+psycopg2.extras.register_uuid()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",

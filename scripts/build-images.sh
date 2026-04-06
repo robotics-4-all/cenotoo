@@ -41,7 +41,7 @@ build_and_load() {
 
     if [ "$LOAD_K3S" = "true" ]; then
         info "Importing $image into k3s containerd ..."
-        docker save "$image" | sudo k3s ctr images import -
+        docker save "$image" | sudo k3s ctr -n k8s.io images import -
         ok "Imported $image into k3s"
     fi
 }
