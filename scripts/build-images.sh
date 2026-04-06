@@ -2,8 +2,9 @@
 # =============================================================================
 # build-images.sh — Build Cenotoo Docker images and load into k3s
 #
-# Usage:  ./scripts/build-images.sh          # Docker build only
-#         ./scripts/build-images.sh --k3s    # Build + import into k3s containerd
+# Usage:  ./scripts/build-images.sh                    # Docker build only
+#         ./scripts/build-images.sh --k3s              # Build + import into k3s containerd
+#         ./scripts/build-images.sh --k3s --no-cache   # Force rebuild (bust Docker layer cache)
 #
 # Set CENOTOO_API_DIR to override cenotoo-api source location (default: ../cenotoo-api)
 # =============================================================================
@@ -23,9 +24,13 @@ API_IMAGE="cenotoo-api:latest"
 CENOTOO_API_DIR="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null && pwd || echo "")}"
 
 LOAD_K3S=false
-if [ "${1:-}" = "--k3s" ]; then
-    LOAD_K3S=true
-fi
+NO_CACHE=""
+for arg in "$@"; do
+    case "$arg" in
+        --k3s)      LOAD_K3S=true ;;
+        --no-cache) NO_CACHE="--no-cache" ;;
+    esac
+done
 
 info()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
 ok()    { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
@@ -36,7 +41,7 @@ build_and_load() {
     local context="$1" image="$2"
 
     info "Building $image from $context ..."
-    docker build -t "$image" "$context"
+    docker build $NO_CACHE -t "$image" "$context"
     ok "Built $image"
 
     if [ "$LOAD_K3S" = "true" ]; then
@@ -52,6 +57,10 @@ fi
 
 if [ "$LOAD_K3S" = "true" ] && ! command -v k3s &>/dev/null; then
     fail "--k3s flag set but k3s is not installed"
+fi
+
+if [ -n "$NO_CACHE" ]; then
+    warn "Building with --no-cache: all layers will be rebuilt from scratch"
 fi
 
 build_and_load "$PROJECT_DIR/flink" "$FLINK_IMAGE"
@@ -73,4 +82,18 @@ ok "All images built successfully"
 if [ "$LOAD_K3S" = "true" ]; then
     ok "All images imported into k3s containerd"
     info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|coap-bridge|cenotoo-api'"
+
+    if kubectl get namespace cenotoo &>/dev/null; then
+        info "Rolling restart of cenotoo deployments to pick up new images ..."
+        kubectl rollout restart deployment \
+            cenotoo-cassandra-writer \
+            cenotoo-live-consumer \
+            cenotoo-api \
+            cenotoo-mqtt-bridge \
+            cenotoo-coap-bridge \
+            -n cenotoo 2>/dev/null || true
+        kubectl rollout status deployment/cenotoo-api -n cenotoo --timeout=120s
+        kubectl rollout status deployment/cenotoo-cassandra-writer -n cenotoo --timeout=120s
+        ok "All deployments rolled out with new images"
+    fi
 fi
