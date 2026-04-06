@@ -7,7 +7,7 @@
 # script file does not exist.
 #
 # Credentials (override via env vars):
-#   CENOTOO_ADMIN_USERNAME   API admin username  (default: cenotoo)
+#   CENOTOO_ADMIN_USERNAME   API admin username  (default: admin)
 #   CENOTOO_ADMIN_PASSWORD   API admin password  (required — no default)
 #
 # Usage:  CENOTOO_ADMIN_PASSWORD=<pass> ./scripts/run-all-tests.sh [NAMESPACE] [RELEASE]
@@ -36,7 +36,7 @@ TOTAL_FAILED=0
 TOTAL_SKIPPED=0
 START_TIME=$(date +%s)
 
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-cenotoo}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 
 fmttime() {
     local s="$1"

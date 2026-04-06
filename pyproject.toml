@@ -6,7 +6,6 @@ requires-python = ">=3.8"
 dependencies = [
     "confluent-kafka",
     "cassandra-driver",
-    "python-dotenv",
 ]
 
 [project.optional-dependencies]
@@ -34,8 +33,6 @@ select = [
     "SIM",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"cassandra/create_cassandra_tables.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

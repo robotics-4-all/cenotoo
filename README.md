@@ -30,7 +30,6 @@
   <img src="https://img.shields.io/badge/PostgreSQL-Metadata-336791?logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white" alt="Mosquitto" />
   <img src="https://img.shields.io/badge/Kubernetes-k3s-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" />
-  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker Compose" />
   <img src="https://img.shields.io/badge/tests-493_passing-brightgreen" alt="493 tests passing" />
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-Apache_2.0-orange?logo=apache&logoColor=white" alt="Apache 2.0" />
@@ -45,7 +44,7 @@ Cenotoo is a **self-hosted, production-ready data platform** built for IoT and c
 
 There is no hosted version. You own your data, your infrastructure, and your pipeline.
 
-**Deploy locally in 2 minutes with Docker Compose. Deploy to production Kubernetes in 10.**
+**Deploy to Kubernetes / k3s in under 10 minutes with a single script.**
 
 ---
 
@@ -96,8 +95,7 @@ There is no hosted version. You own your data, your infrastructure, and your pip
 | 13 | **Rate Limiting** — configurable per-endpoint request limits | via `slowapi` | ✅ |
 | 14 | **OpenTelemetry Tracing** — opt-in distributed tracing with any OTLP-compatible backend | `OTLP_ENDPOINT` env var | ✅ |
 | 15 | **End-to-end Security** — SCRAM-SHA-512 on Kafka, `PasswordAuthenticator` on Cassandra, bcrypt user passwords | — | ✅ |
-| 16 | **Dual Deployment** — identical config, two targets: Docker Compose for dev, Kubernetes for production | — | ✅ |
-| 17 | **Collection Metrics** — health status, record count, and last ingested timestamp per collection | `GET /metrics` | ✅ |
+| 16 | **Collection Metrics** — health status, record count, and last ingested timestamp per collection | `GET /metrics` | ✅ |
 | 18 | **Data Export** — download full collection data as CSV or Parquet | `GET /export` | ✅ |
 | 19 | **Bulk Import** — upload CSV or JSON files with partial success handling and per-record error reporting | `POST /import` | ✅ |
 | 20 | **Webhooks & Alerts** — define threshold rules that fire HTTP webhooks when data conditions are met | `CRUD /rules` | ✅ |
@@ -105,30 +103,6 @@ There is no hosted version. You own your data, your infrastructure, and your pip
 ---
 
 ## 🚀 Quick Start
-
-### Option A — Docker Compose (2 minutes)
-
-```bash
-# 1. Configure
-cp .env.example .env
-python scripts/generate-cluster-id.py   # paste output into .env as KAFKA_CLUSTER_ID
-
-# 2. Build images and launch (node 1)
-bash scripts/build-images.sh
-docker-compose up -d kafka1 cassandra1 jobmanager taskmanager
-
-# 3. Optionally start node 2
-docker-compose up -d kafka2 cassandra2
-
-# 4. Initialize schema
-pip install -r requirements.txt
-python cassandra/create_cassandra_tables.py
-
-# 5. Verify — all containers should show (healthy)
-docker ps
-```
-
-### Option B — Kubernetes / k3s (10 minutes)
 
 Every script is **idempotent** — safe to re-run and picks up where it left off.
 
@@ -271,40 +245,21 @@ An HTTP health probe is available at `http://<coap-bridge-ip>:8080/health`.
 | Prometheus | Metrics collection | kube-prometheus-stack | — |
 | Grafana | Dashboards + alerting | kube-prometheus-stack | — |
 
-### Docker Compose vs Kubernetes
-
-| | Docker Compose | Kubernetes / k3s |
-|---|---|---|
-| **Best for** | Local development, CI, edge nodes | Staging and production |
-| **Kafka** | 2 brokers, KRaft — no ZooKeeper | Strimzi + KafkaNodePools, SCRAM-SHA-512 |
-| **Cassandra** | 2 nodes, local volumes | K8ssandra + Medusa backups, PasswordAuthenticator |
-| **PostgreSQL** | Single container | StatefulSet + persistent volume |
-| **Flink** | Single JobManager (no HA) | K8s-native HA via Flink Operator |
-| **MQTT** | Mosquitto + bridge container | StatefulSet + mqtt-auth sidecar |
-| **Monitoring** | — | kube-prometheus-stack (one script) |
-| **Setup time** | ~2 minutes | ~10 minutes |
-
 ---
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### Configuration
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `KAFKA_BROKER1_IP` | Kafka broker 1 address | — |
-| `KAFKA_BROKER2_IP` | Kafka broker 2 address | — |
-| `KAFKA_CLUSTER_ID` | KRaft cluster ID (generate with `scripts/generate-cluster-id.py`) | — |
-| `KAFKA_USERNAME` | SASL username | `admin` |
-| `KAFKA_PASSWORD` | SASL password | — |
-| `CASSANDRA_SEEDS` | Cassandra contact points | — |
-| `CASSANDRA_DC` | Datacenter name | `datacenter1` |
-| `CASSANDRA_RF` | Replication factor | `2` |
-| `POSTGRES_HOST` | PostgreSQL host | `localhost` |
-| `POSTGRES_PORT` | PostgreSQL port | `5432` |
-| `POSTGRES_DB` | Database name | `cenotoo` |
-| `POSTGRES_USER` | Database user | `cenotoo` |
-| `POSTGRES_PASSWORD` | Database password | — |
+All credentials and cluster parameters are managed as Kubernetes Secrets and ConfigMaps under `deploy/k8s/01-secrets/`. Example files (`.yaml.example`) show the required structure — copy, fill in your values, and apply before deploying:
+
+```bash
+cp deploy/k8s/01-secrets/api-secrets.yaml.example deploy/k8s/01-secrets/api-secrets.yaml
+# edit values, then:
+kubectl apply -f deploy/k8s/01-secrets/
+```
+
+See `scripts/07-deploy-cenotoo.sh` for the full deployment sequence including secret scaffolding.
 
 ### Naming Conventions
 
@@ -360,7 +315,7 @@ pytest tests/ -v   # 493 tests — mocks Kafka and Cassandra
 | Time-series Storage | Apache Cassandra 4.x | `NetworkTopologyStrategy`, partition key `(day, key)` |
 | Metadata Storage | PostgreSQL 15 | Orgs, projects, users, API keys, device registry, rules |
 | REST API | FastAPI + Pydantic | Swagger UI, ReDoc, OAuth2, rate limiting |
-| MQTT Broker | Eclipse Mosquitto | Anonymous dev / SASL production |
+| MQTT Broker | Eclipse Mosquitto | mosquitto-go-auth HTTP backend via cenotoo-api |
 | CoAP Bridge | aiocoap | Plaintext UDP only (DTLS experimental, not supported) |
 | Kafka Operator | Strimzi 0.45+ | KRaft, KafkaNodePools, SCRAM-SHA-512 ACLs |
 | Cassandra Operator | K8ssandra | Medusa backups, TLS, PasswordAuthenticator |

@@ -9,6 +9,8 @@ API_SOURCE="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null &&
 IMAGE_NAME="${CENOTOO_API_IMAGE:-cenotoo-api}"
 IMAGE_TAG="${CENOTOO_API_TAG:-latest}"
 REGISTRY="${CENOTOO_API_REGISTRY:-}"
+K8S_NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
+K8S_DEPLOYMENT="${CENOTOO_API_DEPLOYMENT:-cenotoo-api}"
 
 # --- Colors & Formatting ---
 BOLD='\033[1m'
@@ -60,7 +62,6 @@ usage() {
     echo "  --tag TAG         Image tag (default: latest)"
     echo "  --registry REG    Registry prefix (e.g. ghcr.io/robotics-4-all)"
     echo "  --push            Push image to registry after build"
-    echo "  --k3s             Import image into k3s containerd"
     echo "  --configure       Configure API credentials (K8s secrets)"
     echo "  --test            Run tests before building"
     echo "  --no-cache        Build without Docker layer cache"
@@ -73,17 +74,16 @@ usage() {
     echo "  CENOTOO_API_REGISTRY  Registry prefix"
     echo ""
     echo -e "${BOLD}Examples:${RESET}"
-    echo "  $0                                    # Build cenotoo-api:latest"
-    echo "  $0 --tag v1.2.0                       # Build cenotoo-api:v1.2.0"
-    echo "  $0 --tag v1.2.0 --push                # Build + push to registry"
-    echo "  $0 --k3s                              # Build + import into k3s"
-    echo "  $0 --test --tag v1.2.0 --push         # Test + build + push"
+    echo "  $0                                    # Build cenotoo-api:latest + import into k3s"
+    echo "  $0 --tag v1.2.0                       # Build cenotoo-api:v1.2.0 + import into k3s"
+    echo "  $0 --tag v1.2.0 --push                # Build + import into k3s + push to registry"
+    echo "  $0 --test --tag v1.2.0 --push         # Test + build + import into k3s + push"
     exit 0
 }
 
 # --- Parse Arguments ---
 DO_PUSH=false
-DO_K3S=false
+DO_K3S=true
 DO_TEST=false
 DO_CONFIGURE=false
 NO_CACHE=""
@@ -93,7 +93,6 @@ while [ $# -gt 0 ]; do
         --tag)        IMAGE_TAG="$2"; shift 2 ;;
         --registry)   REGISTRY="$2"; shift 2 ;;
         --push)       DO_PUSH=true; shift ;;
-        --k3s)        DO_K3S=true; shift ;;
         --configure)  DO_CONFIGURE=true; shift ;;
         --test)       DO_TEST=true; shift ;;
         --no-cache)   NO_CACHE="--no-cache"; shift ;;
@@ -109,11 +108,10 @@ else
 fi
 
 # --- Calculate Steps ---
-TOTAL_STEPS=3
+TOTAL_STEPS=4
 [ "$DO_CONFIGURE" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "$DO_TEST" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 [ "$DO_PUSH" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
-[ "$DO_K3S" = "true" ] && TOTAL_STEPS=$((TOTAL_STEPS + 1))
 CURRENT_STEP=0
 next_step() { CURRENT_STEP=$((CURRENT_STEP + 1)); }
 
@@ -125,7 +123,7 @@ echo -e "  ${BOLD}Source:${RESET}   ${API_SOURCE}"
 [ "$DO_CONFIGURE" = "true" ] && echo -e "  ${BOLD}Configure:${RESET}yes"
 [ "$DO_TEST" = "true" ]      && echo -e "  ${BOLD}Test:${RESET}     yes"
 [ "$DO_PUSH" = "true" ]      && echo -e "  ${BOLD}Push:${RESET}     yes"
-[ "$DO_K3S" = "true" ]       && echo -e "  ${BOLD}k3s:${RESET}      yes"
+echo -e "  ${BOLD}k3s:${RESET}      yes (always)"
 [ -n "$NO_CACHE" ]           && echo -e "  ${BOLD}Cache:${RESET}    disabled"
 
 # ── Step: Preflight ──────────────────────────────────────────────────────────
@@ -152,12 +150,10 @@ if [ ! -f "$API_SOURCE/requirements.txt" ]; then
 fi
 ok "requirements.txt found"
 
-if [ "$DO_K3S" = "true" ]; then
-    if ! command -v k3s &>/dev/null; then
-        fail "--k3s flag set but k3s is not installed"
-    fi
-    ok "k3s found"
+if ! command -v k3s &>/dev/null; then
+    fail "k3s is not installed"
 fi
+ok "k3s found"
 
 if [ "$DO_PUSH" = "true" ] && [ -z "$REGISTRY" ]; then
     fail "--push requires --registry (e.g. --registry ghcr.io/robotics-4-all)"
@@ -280,10 +276,10 @@ IMAGE_SIZE=$(docker image inspect "$FULL_IMAGE" --format='{{.Size}}' 2>/dev/null
 IMAGE_SIZE_MB=$((IMAGE_SIZE / 1024 / 1024))
 dimtext "Image size: ${IMAGE_SIZE_MB}MB"
 
-# ── Step: Import to k3s (optional) ───────────────────────────────────────────
+# ── Step: Import to k3s ──────────────────────────────────────────────────────
 if [ "$DO_K3S" = "true" ]; then
     next_step
-    step "$CURRENT_STEP" "Importing into k3s"
+    step "$CURRENT_STEP" "Importing into k3s and rolling out"
 
     info "docker save ${FULL_IMAGE} | sudo k3s ctr images import -"
     if ! docker save "$FULL_IMAGE" | sudo k3s ctr images import - 2>&1 | while IFS= read -r line; do
@@ -292,7 +288,30 @@ if [ "$DO_K3S" = "true" ]; then
         fail "k3s import failed"
     fi
     ok "Imported into k3s containerd"
-    dimtext "Verify: sudo k3s ctr images list | grep cenotoo-api"
+
+    if kubectl get configmap cenotoo-api-patches -n "$K8S_NAMESPACE" &>/dev/null 2>&1; then
+        info "Removing hotpatch ConfigMap mounts ..."
+        kubectl get deployment "$K8S_DEPLOYMENT" -n "$K8S_NAMESPACE" -o json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+spec = d['spec']['template']['spec']
+spec['volumes'] = [v for v in spec.get('volumes', []) if v['name'] != 'api-patches']
+for c in spec['containers']:
+    c['volumeMounts'] = [m for m in c.get('volumeMounts', []) if m['name'] != 'api-patches']
+print(json.dumps(d))
+" | kubectl apply -f -
+        kubectl delete configmap cenotoo-api-patches -n "$K8S_NAMESPACE"
+        ok "Hotpatch ConfigMap removed"
+    fi
+
+    info "Rolling out ${K8S_DEPLOYMENT} ..."
+    kubectl rollout restart deployment/"$K8S_DEPLOYMENT" -n "$K8S_NAMESPACE"
+    if ! kubectl rollout status deployment/"$K8S_DEPLOYMENT" -n "$K8S_NAMESPACE" --timeout=120s 2>&1 | while IFS= read -r line; do
+        echo -e "  ${DIM}${line}${RESET}"
+    done; then
+        fail "Rollout failed — check: kubectl rollout history deployment/${K8S_DEPLOYMENT} -n ${K8S_NAMESPACE}"
+    fi
+    ok "Deployment rolled out successfully"
 fi
 
 # ── Step: Push (optional) ────────────────────────────────────────────────────
@@ -320,15 +339,9 @@ printf  "  │  %-44s │\n" "Image:  ${FULL_IMAGE}"
 printf  "  │  %-44s │\n" "Size:   ${IMAGE_SIZE_MB}MB"
 printf  "  │  %-44s │\n" "Time:   ${BUILD_DURATION}s"
 echo -e "  │                                              │"
-if [ "$DO_CONFIGURE" = "true" ]; then
-    echo -e "  │  ${GREEN}✓${RESET} Credentials configured                    │"
-fi
-if [ "$DO_K3S" = "true" ]; then
-    echo -e "  │  ${GREEN}✓${RESET} Imported into k3s                         │"
-fi
-if [ "$DO_PUSH" = "true" ]; then
-    echo -e "  │  ${GREEN}✓${RESET} Pushed to registry                        │"
-fi
+[ "$DO_CONFIGURE" = "true" ] && echo -e "  │  ${GREEN}✓${RESET} Credentials configured                    │"
+echo -e "  │  ${GREEN}✓${RESET} Imported into k3s                         │"
+[ "$DO_PUSH" = "true" ] && echo -e "  │  ${GREEN}✓${RESET} Pushed to registry                        │"
 echo -e "  └──────────────────────────────────────────────┘"
 
 if [ "${CONFIGURED_ORG_ID:-}" != "" ]; then

@@ -159,10 +159,10 @@ else
     info "No users found. Create the initial admin account."
     echo ""
 
-    ADMIN_USER="cenotoo"
-    printf "  Admin username [cenotoo]: "
+    ADMIN_USER="admin"
+    printf "  Admin username [admin]: "
     read -r _input
-    ADMIN_USER="${_input:-cenotoo}"
+    ADMIN_USER="${_input:-admin}"
 
     ADMIN_PASS=""
     while [ -z "$ADMIN_PASS" ]; do

@@ -88,7 +88,7 @@ until curl -s "http://localhost:${API_PORT}/health" &>/dev/null; do
     fi
 done
 
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-cenotoo}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 AUTH_HTTP=$(_api POST "${API_BASE}/token" -d "username=${ADMIN_USERNAME}&password=${ADMIN_PASSWORD}")

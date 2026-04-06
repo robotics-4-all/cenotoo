@@ -3,7 +3,7 @@ set -euo pipefail
 
 NAMESPACE="${1:-cenotoo}"
 RELEASE="${2:-cenotoo}"
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-cenotoo}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD:?CENOTOO_ADMIN_PASSWORD is required}"
 
 API_NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)

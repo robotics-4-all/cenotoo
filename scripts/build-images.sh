@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# build-images.sh — Build Cenotoo Docker images and load into k3s
+# build-images.sh — Build Cenotoo Docker images and import into k3s containerd
 #
-# Usage:  ./scripts/build-images.sh                    # Docker build only
-#         ./scripts/build-images.sh --k3s              # Build + import into k3s containerd
-#         ./scripts/build-images.sh --k3s --no-cache   # Force rebuild (bust Docker layer cache)
+# Usage:  ./scripts/build-images.sh              # Build + import into k3s
+#         ./scripts/build-images.sh --no-cache   # Force rebuild (bust Docker layer cache)
 #
 # Set CENOTOO_API_DIR to override cenotoo-api source location (default: ../cenotoo-api)
 # =============================================================================
@@ -23,11 +22,9 @@ API_IMAGE="cenotoo-api:latest"
 
 CENOTOO_API_DIR="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null && pwd || echo "")}"
 
-LOAD_K3S=false
 NO_CACHE=""
 for arg in "$@"; do
     case "$arg" in
-        --k3s)      LOAD_K3S=true ;;
         --no-cache) NO_CACHE="--no-cache" ;;
     esac
 done
@@ -37,6 +34,18 @@ ok()    { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
 warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
 fail()  { printf '\033[1;31m[FAIL]\033[0m  %s\n' "$*"; exit 1; }
 
+if ! command -v docker &>/dev/null; then
+    fail "Docker is required. Install Docker first."
+fi
+
+if ! command -v k3s &>/dev/null; then
+    fail "k3s is not installed. Run scripts/01-install-k3s.sh first."
+fi
+
+if [ -n "$NO_CACHE" ]; then
+    warn "Building with --no-cache: all layers will be rebuilt from scratch"
+fi
+
 build_and_load() {
     local context="$1" image="$2"
 
@@ -44,24 +53,10 @@ build_and_load() {
     docker build $NO_CACHE -t "$image" "$context"
     ok "Built $image"
 
-    if [ "$LOAD_K3S" = "true" ]; then
-        info "Importing $image into k3s containerd ..."
-        docker save "$image" | sudo k3s ctr -n k8s.io images import -
-        ok "Imported $image into k3s"
-    fi
+    info "Importing $image into k3s containerd ..."
+    docker save "$image" | sudo k3s ctr -n k8s.io images import -
+    ok "Imported $image into k3s"
 }
-
-if ! command -v docker &>/dev/null; then
-    fail "Docker is required. Install Docker first."
-fi
-
-if [ "$LOAD_K3S" = "true" ] && ! command -v k3s &>/dev/null; then
-    fail "--k3s flag set but k3s is not installed"
-fi
-
-if [ -n "$NO_CACHE" ]; then
-    warn "Building with --no-cache: all layers will be rebuilt from scratch"
-fi
 
 build_and_load "$PROJECT_DIR/flink" "$FLINK_IMAGE"
 build_and_load "$PROJECT_DIR/kafka-to-cassandra" "$CASSANDRA_WRITER_IMAGE"
@@ -78,22 +73,27 @@ else
 fi
 
 echo ""
-ok "All images built successfully"
-if [ "$LOAD_K3S" = "true" ]; then
-    ok "All images imported into k3s containerd"
-    info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|coap-bridge|cenotoo-api'"
+ok "All images built and imported into k3s containerd"
+info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|coap-bridge|cenotoo-api'"
 
-    if kubectl get namespace cenotoo &>/dev/null; then
-        info "Rolling restart of cenotoo deployments to pick up new images ..."
-        kubectl rollout restart deployment \
-            cenotoo-cassandra-writer \
-            cenotoo-live-consumer \
-            cenotoo-api \
-            cenotoo-mqtt-bridge \
-            cenotoo-coap-bridge \
-            -n cenotoo 2>/dev/null || true
-        kubectl rollout status deployment/cenotoo-api -n cenotoo --timeout=120s
-        kubectl rollout status deployment/cenotoo-cassandra-writer -n cenotoo --timeout=120s
-        ok "All deployments rolled out with new images"
+if kubectl get namespace cenotoo &>/dev/null; then
+    info "Applying updated deployment manifests ..."
+    kubectl apply -f "$PROJECT_DIR/deploy/k8s/05-consumers/" -n cenotoo 2>/dev/null || true
+
+    info "Rolling restart of cenotoo deployments to pick up new images ..."
+    kubectl rollout restart deployment \
+        cenotoo-cassandra-writer \
+        cenotoo-live-consumer \
+        cenotoo-api \
+        cenotoo-mqtt-bridge \
+        cenotoo-coap-bridge \
+        -n cenotoo 2>/dev/null || true
+    kubectl rollout status deployment/cenotoo-api -n cenotoo --timeout=120s
+    kubectl rollout status deployment/cenotoo-cassandra-writer -n cenotoo --timeout=120s
+    ok "All deployments rolled out with new images"
+
+    if kubectl get configmap cenotoo-consumer-py -n cenotoo &>/dev/null; then
+        kubectl delete configmap cenotoo-consumer-py -n cenotoo
+        ok "Removed legacy cenotoo-consumer-py ConfigMap"
     fi
 fi
