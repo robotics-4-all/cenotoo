@@ -52,6 +52,66 @@ wait_for_cassandra() {
 }
 
 # ---------------------------------------------------------------------------
+# align_cassandra_password
+# ---------------------------------------------------------------------------
+# The Cassandra StatefulSet boots with the default cassandra/cassandra
+# credentials. configure-secrets.sh writes a *random* password into the
+# cenotoo-cassandra-superuser k8s secret. Without alignment, every consumer
+# (api, cassandra-writer, ...) authenticates with the secret's random password
+# and gets [Bad credentials] from Cassandra.
+#
+# This function is idempotent:
+#   - if login with the secret password already works  -> no-op
+#   - else login with the default cassandra/cassandra and ALTER ROLE
+#     to the secret value, then re-verify
+# CQL is piped via stdin to avoid shell-quoting issues with random passwords
+# that may contain $, ', ", \, etc.
+align_cassandra_password() {
+    local ns="$1" pod="cenotoo-cassandra-0"
+    local secret_user secret_pass
+
+    if ! kubectl -n "$ns" get secret cenotoo-cassandra-superuser &>/dev/null; then
+        warn "cenotoo-cassandra-superuser secret missing — skipping password alignment"
+        return 0
+    fi
+    secret_user=$(kubectl -n "$ns" get secret cenotoo-cassandra-superuser -o jsonpath='{.data.username}' | base64 -d)
+    secret_pass=$(kubectl -n "$ns" get secret cenotoo-cassandra-superuser -o jsonpath='{.data.password}' | base64 -d)
+    if [ -z "$secret_user" ] || [ -z "$secret_pass" ]; then
+        warn "cassandra superuser secret has empty username/password — skipping alignment"
+        return 0
+    fi
+
+    info "Verifying Cassandra credentials match the k8s secret ..."
+    if printf 'SELECT release_version FROM system.local;\n' \
+        | kubectl exec -i -n "$ns" "$pod" -c cassandra -- \
+            cqlsh -u "$secret_user" -p "$secret_pass" &>/dev/null; then
+        ok "Cassandra password already aligned with secret"
+        return 0
+    fi
+
+    warn "Cassandra password does not match secret — aligning via ALTER ROLE"
+    if ! printf "ALTER ROLE \"%s\" WITH PASSWORD = '%s';\n" "$secret_user" "$secret_pass" \
+        | kubectl exec -i -n "$ns" "$pod" -c cassandra -- \
+            cqlsh -u cassandra -p cassandra 2>&1 | tail -3; then
+        fail "Failed to ALTER ROLE on Cassandra (could not log in with default cassandra/cassandra either)"
+    fi
+
+    # Verify the change took effect — Cassandra is eventually-consistent for auth changes
+    local elapsed=0
+    while [ "$elapsed" -lt 30 ]; do
+        if printf 'SELECT release_version FROM system.local;\n' \
+            | kubectl exec -i -n "$ns" "$pod" -c cassandra -- \
+                cqlsh -u "$secret_user" -p "$secret_pass" &>/dev/null; then
+            ok "Cassandra password aligned with secret"
+            return 0
+        fi
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    fail "ALTER ROLE issued but new Cassandra password still not accepted after 30s"
+}
+
+# ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
 info "Running preflight checks ..."
@@ -103,6 +163,16 @@ info "Applying Cassandra ..."
 kubectl apply -f "$MANIFEST_DIR/03-cassandra/" -n "$NAMESPACE"
 wait_for_cassandra "$NAMESPACE" 300
 ok "Cassandra is ready"
+
+align_cassandra_password "$NAMESPACE"
+
+# Pass aligned credentials to init-cassandra-schema.sh so it connects with the
+# secret's password (its default is cassandra/cassandra, which we just changed).
+if kubectl -n "$NAMESPACE" get secret cenotoo-cassandra-superuser &>/dev/null; then
+    CASSANDRA_USER=$(kubectl -n "$NAMESPACE" get secret cenotoo-cassandra-superuser -o jsonpath='{.data.username}' | base64 -d)
+    CASSANDRA_PASS=$(kubectl -n "$NAMESPACE" get secret cenotoo-cassandra-superuser -o jsonpath='{.data.password}' | base64 -d)
+    export CASSANDRA_USER CASSANDRA_PASS
+fi
 
 info "Initializing Cassandra schema ..."
 "$SCRIPT_DIR/init-cassandra-schema.sh"
