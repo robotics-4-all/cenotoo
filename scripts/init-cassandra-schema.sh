@@ -253,12 +253,15 @@ else
         info "Using admin credentials from CENOTOO_ADMIN_USERNAME/PASSWORD env vars"
     fi
 
-    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
+    # `|| true` is required because `set -e` is on: a missing bcrypt module
+    # makes python3 exit non-zero, which would otherwise abort the entire
+    # deploy. We want to fall through to the warn-and-continue branch below.
+    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || true)
     HASHED=$(python3 -c "
 import bcrypt, sys
 h = bcrypt.hashpw(sys.argv[1].encode(), bcrypt.gensalt()).decode()
 print(h)
-" "$ADMIN_PASS" 2>/dev/null)
+" "$ADMIN_PASS" 2>/dev/null || true)
 
     if [ -n "$HASHED" ] && [ -n "$ADMIN_UUID" ]; then
         printf "INSERT INTO metadata.user (id, organization_id, username, password, role) VALUES (%s, %s, '%s', '%s', 'superadmin');\n" \

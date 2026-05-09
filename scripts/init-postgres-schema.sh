@@ -188,12 +188,12 @@ else
         info "Using admin credentials from CENOTOO_ADMIN_USERNAME/PASSWORD env vars"
     fi
 
-    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || "")
+    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || true)
     HASHED=$(python3 -c "
 import bcrypt, sys
 h = bcrypt.hashpw(sys.argv[1].encode(), bcrypt.gensalt()).decode()
 print(h)
-" "$ADMIN_PASS" 2>/dev/null || echo "")
+" "$ADMIN_PASS" 2>/dev/null || true)
 
     if [ -n "$HASHED" ] && [ -n "$ADMIN_UUID" ]; then
         ESCAPED_HASH="${HASHED//\'/\'\'}"

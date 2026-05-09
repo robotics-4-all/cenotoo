@@ -151,20 +151,31 @@ if [ "$DISK_FREE_GB" -lt "$MIN_DISK_GB" ]; then
 fi
 ok "Disk: ${DISK_FREE_GB} GB free"
 
-# Required commands (install missing ones from apt where possible)
+# Required commands (install missing ones from apt where possible).
+# python3-bcrypt is needed by init-{cassandra,postgres}-schema.sh to hash
+# the seeded admin password; without it the seed step silently no-ops
+# and the admin account is never created.
 APT_INSTALL=()
-for cmd in curl openssl git; do
+for cmd in curl openssl git python3; do
     if ! command -v "$cmd" &>/dev/null; then
         APT_INSTALL+=("$cmd")
     fi
 done
+if ! python3 -c 'import bcrypt' 2>/dev/null; then
+    APT_INSTALL+=("python3-bcrypt")
+fi
 if [ "${#APT_INSTALL[@]}" -gt 0 ]; then
     info "Installing missing packages: ${APT_INSTALL[*]}"
     apt-get update -qq
     apt-get install -y "${APT_INSTALL[@]}"
 fi
-for cmd in curl openssl git; do require_cmd "$cmd"; done
-ok "Tooling: curl, openssl, git"
+for cmd in curl openssl git python3; do require_cmd "$cmd"; done
+if ! python3 -c 'import bcrypt' 2>/dev/null; then
+    fail "python3-bcrypt is required to seed the admin user but could not be installed"
+    fail "Install manually: sudo apt-get install python3-bcrypt"
+    exit 1
+fi
+ok "Tooling: curl, openssl, git, python3, python3-bcrypt"
 
 # Docker — required for building images
 if ! command -v docker &>/dev/null; then
