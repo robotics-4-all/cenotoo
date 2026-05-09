@@ -156,21 +156,37 @@ if [ "${EXISTING_USER:-0}" -gt 0 ]; then
     ok "Admin user already exists — skipping"
 else
     echo ""
-    info "No users found. Create the initial admin account."
-    echo ""
 
-    ADMIN_USER="admin"
-    printf "  Admin username [admin]: "
-    read -r _input
-    ADMIN_USER="${_input:-admin}"
+    # See init-cassandra-schema.sh for the rationale: this script also runs
+    # under install.sh -> tee, so stdin is not a TTY. Honor env vars or fail
+    # cleanly instead of hanging in an interactive read loop.
+    ADMIN_USER="${CENOTOO_ADMIN_USERNAME:-}"
+    ADMIN_PASS="${CENOTOO_ADMIN_PASSWORD:-}"
 
-    ADMIN_PASS=""
-    while [ -z "$ADMIN_PASS" ]; do
-        printf "  Admin password: "
-        read -rs ADMIN_PASS
+    if [ -z "$ADMIN_USER" ] || [ -z "$ADMIN_PASS" ]; then
+        if [ ! -t 0 ]; then
+            fail "No TTY and CENOTOO_ADMIN_USERNAME/CENOTOO_ADMIN_PASSWORD not set"
+            fail "Set both env vars before running this script in non-interactive mode"
+            exit 1
+        fi
+        info "No users found. Create the initial admin account."
         echo ""
-        [ -z "$ADMIN_PASS" ] && warn "Password cannot be empty"
-    done
+
+        if [ -z "$ADMIN_USER" ]; then
+            printf "  Admin username [admin]: "
+            read -r _input
+            ADMIN_USER="${_input:-admin}"
+        fi
+
+        while [ -z "$ADMIN_PASS" ]; do
+            printf "  Admin password: "
+            read -rs ADMIN_PASS
+            echo ""
+            [ -z "$ADMIN_PASS" ] && warn "Password cannot be empty"
+        done
+    else
+        info "Using admin credentials from CENOTOO_ADMIN_USERNAME/PASSWORD env vars"
+    fi
 
     ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || "")
     HASHED=$(python3 -c "

@@ -416,12 +416,15 @@ if ! "$SCRIPT_DIR/build-images.sh"; then
     warn "build-images.sh exited non-zero — some images may be missing"
 fi
 
+# Export admin credentials BEFORE 07-deploy-cenotoo.sh: it calls
+# init-cassandra-schema.sh which now reads these vars instead of prompting
+# (we run under tee, so stdin is not a TTY and an interactive read would hang).
+export CENOTOO_ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+export CENOTOO_ADMIN_PASSWORD="$ADMIN_PASSWORD"
+
 # ---- Deploy core ----------------------------------------------------------
 run_step "07-deploy-cenotoo.sh"   "Deploy Cenotoo core (Kafka, Cassandra, consumers)"
 run_step "24-deploy-postgres.sh"  "Deploy PostgreSQL metadata store"
-
-# Set admin password before API deployment so init-postgres-schema picks it up
-export CENOTOO_ADMIN_PASSWORD="$ADMIN_PASSWORD"
 run_step "08-deploy-api.sh"       "Deploy REST API"
 
 # ---- Optional bridges -----------------------------------------------------
