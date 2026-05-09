@@ -131,16 +131,32 @@ def consume_and_store():
     consumer.subscribe([TOPIC_PATTERN])
     logger.info("Subscribed to topic pattern: %s", TOPIC_PATTERN)
 
+    _logged_no_topics = False
+
     try:
         while not _shutdown:
             msg = consumer.poll(1.0)
             if msg is None:
                 continue
             if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+                err_code = msg.error().code()
+                if err_code == KafkaError._PARTITION_EOF:
                     continue
-                else:
-                    raise KafkaException(msg.error())
+                # On a fresh install no topics match TOPIC_PATTERN yet; broker
+                # responds with UNKNOWN_TOPIC_OR_PART on every poll until the
+                # first producer publishes. Treat it as benign — log once,
+                # then keep polling. Topics auto-create when MQTT/CoAP/REST
+                # produces a message and the regex subscription picks them up.
+                if err_code == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                    if not _logged_no_topics:
+                        logger.info(
+                            "No Kafka topics match %s yet — waiting for first producer",
+                            TOPIC_PATTERN,
+                        )
+                        _logged_no_topics = True
+                    time.sleep(5)
+                    continue
+                raise KafkaException(msg.error())
 
             topic = msg.topic()
             parts = topic.split(".")
