@@ -183,13 +183,25 @@ WHERE username = '${ESCAPED_USER}';
 " >/dev/null
     ok "Password reset for '${ADMIN_USER}' (role ensured: superadmin)"
 else
-    # New user — needs an organization. Use the bootstrap org if present,
-    # else fall back to the first existing one. Keeps installs single-tenant.
-    ORG_ID=$(run_psql_cmd "SELECT id FROM organization WHERE id = '00000000-0000-0000-0000-000000000001'::uuid LIMIT 1;")
+    # Resolve the organization for the new user. Prefer the bootstrap org,
+    # then any existing org, then auto-create the bootstrap org if the DB
+    # has none (happens when install.sh ran non-interactively and the org
+    # seed in init-postgres-schema.sh was skipped).
+    BOOTSTRAP_ORG_ID="00000000-0000-0000-0000-000000000001"
+    ORG_ID=$(run_psql_cmd "SELECT id FROM organization WHERE id = '${BOOTSTRAP_ORG_ID}'::uuid LIMIT 1;")
     if [ -z "$ORG_ID" ]; then
         ORG_ID=$(run_psql_cmd "SELECT id FROM organization ORDER BY creation_date LIMIT 1;")
     fi
-    [ -n "$ORG_ID" ] || fail "No organization found in DB — run init-postgres-schema.sh first"
+    if [ -z "$ORG_ID" ]; then
+        info "No organization found — creating bootstrap org 'cenotoo'"
+        run_psql_cmd "
+INSERT INTO organization (id, organization_name, description, tags, creation_date)
+VALUES ('${BOOTSTRAP_ORG_ID}'::uuid, 'cenotoo', '', ARRAY[]::TEXT[], NOW())
+ON CONFLICT (id) DO NOTHING;
+" >/dev/null
+        ORG_ID="$BOOTSTRAP_ORG_ID"
+        ok "Bootstrap organization created"
+    fi
 
     USER_UUID=$(python3 -c "import uuid; print(uuid.uuid4())")
 
