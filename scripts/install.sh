@@ -382,6 +382,32 @@ if ! "$SCRIPT_DIR/configure-secrets.sh" </dev/null; then
     fail "configure-secrets.sh failed (see $LOG_FILE)"
 fi
 
+# 07-deploy-cenotoo.sh demands EVERY *.yaml.example has a matching *.yaml,
+# including mqtt-credentials.yaml — but that file is owned by 12-deploy-mqtt-bridge.sh.
+# Pre-create a placeholder so the deploy preflight passes; 12 will overwrite it
+# with real credentials when the MQTT bridge is installed.
+SECRETS_DIR="$PROJECT_DIR/deploy/k8s/01-secrets"
+if [ -f "$SECRETS_DIR/mqtt-credentials.yaml.example" ] && \
+   [ ! -f "$SECRETS_DIR/mqtt-credentials.yaml" ]; then
+    info "Pre-creating placeholder mqtt-credentials.yaml (will be overwritten by MQTT deploy)"
+    PLACEHOLDER_USER=$(printf '%s' "placeholder" | base64 -w0 2>/dev/null || printf '%s' "placeholder" | base64)
+    PLACEHOLDER_PASS=$(printf '%s' "placeholder-replace-me" | base64 -w0 2>/dev/null || printf '%s' "placeholder-replace-me" | base64)
+    cat > "$SECRETS_DIR/mqtt-credentials.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cenotoo-mqtt-credentials
+  labels:
+    app.kubernetes.io/component: mqtt-broker
+    app.kubernetes.io/part-of: cenotoo
+type: Opaque
+data:
+  username: $PLACEHOLDER_USER
+  password: $PLACEHOLDER_PASS
+EOF
+    chmod 600 "$SECRETS_DIR/mqtt-credentials.yaml"
+fi
+
 # ---- Build images BEFORE deploying so pods don't crash-loop on missing image
 hr
 info "→ Build local Docker images"
