@@ -146,7 +146,7 @@ dimtext "Image size: ${IMAGE_SIZE_MB}MB"
 step 4 "Import into k3s"
 
 info "docker save ${FULL_IMAGE} | sudo k3s ctr images import -"
-if ! docker save "$FULL_IMAGE" | sudo k3s ctr images import - 2>&1 | while IFS= read -r line; do
+if !         docker save "$FULL_IMAGE" | sudo k3s ctr -n k8s.io images import - 2>&1 | while IFS= read -r line; do
     echo -e "  ${DIM}${line}${RESET}"
 done; then
     fail "k3s import failed"
@@ -155,6 +155,16 @@ ok "Imported into k3s containerd"
 
 # ── Step 5: Migrate Cassandra schema ─────────────────────────────────────────
 step 5 "Migrate Cassandra schema"
+
+# 07-deploy-cenotoo.sh's align_cassandra_password() rotates Cassandra's
+# superuser password to the value in the cenotoo-cassandra-superuser Secret.
+# init-cassandra-schema.sh defaults to cassandra/cassandra, so without these
+# env vars the schema migration would silently auth-fail and time out.
+if kubectl -n "$NAMESPACE" get secret cenotoo-cassandra-superuser &>/dev/null; then
+    CASSANDRA_USER=$(kubectl -n "$NAMESPACE" get secret cenotoo-cassandra-superuser -o jsonpath='{.data.username}' | base64 -d)
+    CASSANDRA_PASS=$(kubectl -n "$NAMESPACE" get secret cenotoo-cassandra-superuser -o jsonpath='{.data.password}' | base64 -d)
+    export CASSANDRA_USER CASSANDRA_PASS
+fi
 
 info "Running schema migration (safe to re-run — all statements are IF NOT EXISTS) ..."
 "$SCRIPT_DIR/init-cassandra-schema.sh"

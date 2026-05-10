@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 09-expose-api.sh — Expose the Cenotoo API to the public internet
+# 09-expose-api.sh — Expose the Cenotoo API (and dashboard) to the public internet
 #
-# Guides you through setting up Ingress + TLS for the API service.
+# Guides you through setting up Ingress + TLS for the API service, and
+# optionally for the dashboard (served at dashboard.<domain> when present).
 # Prerequisites: k3s (01), cert-manager (02), API deployed (08)
 # =============================================================================
 set -euo pipefail
@@ -68,6 +69,11 @@ echo ""
 
 TOTAL_STEPS=4
 
+EXPOSE_DASHBOARD=false
+if kubectl get deployment cenotoo-dashboard -n "$NAMESPACE" &>/dev/null; then
+    EXPOSE_DASHBOARD=true
+fi
+
 # ── Step 1: Preflight ────────────────────────────────────────────────────────
 step 1 "Preflight checks"
 
@@ -111,16 +117,29 @@ if [ "$EXPOSE_METHOD" = "3" ]; then
     echo ""
     echo -e "    ${BOLD}http://${NODE_IP}:30080${RESET}"
     echo -e "    ${BOLD}http://${NODE_IP}:30080/docs${RESET}"
+    [ "$EXPOSE_DASHBOARD" = "true" ] && echo -e "    ${BOLD}http://${NODE_IP}:30081${RESET} (dashboard)"
     echo ""
     dimtext "No changes were made."
-    dimtext "For public access, make sure port 30080 is open in your firewall."
+    dimtext "For public access, make sure ports 30080$([ "$EXPOSE_DASHBOARD" = "true" ] && echo " and 30081") are open in your firewall."
     exit 0
 fi
 
-prompt DOMAIN "Domain name:" "api.cenotoo.example.com"
+prompt DOMAIN "API domain name:" "api.cenotoo.example.com"
 
 if [ -z "$DOMAIN" ]; then
     fail "Domain name is required for Ingress"
+fi
+
+DASHBOARD_DOMAIN=""
+if [ "$EXPOSE_DASHBOARD" = "true" ]; then
+    # Default dashboard subdomain: replace leading 'api.' with 'dashboard.', or
+    # prepend 'dashboard.' if the API domain doesn't follow that pattern.
+    if [[ "$DOMAIN" == api.* ]]; then
+        DEFAULT_DASHBOARD_DOMAIN="dashboard.${DOMAIN#api.}"
+    else
+        DEFAULT_DASHBOARD_DOMAIN="dashboard.${DOMAIN}"
+    fi
+    prompt DASHBOARD_DOMAIN "Dashboard domain name (or empty to skip):" "$DEFAULT_DASHBOARD_DOMAIN"
 fi
 
 ENABLE_TLS=false
@@ -143,10 +162,11 @@ INGRESS_CLASS="${INGRESS_CLASS:-traefik}"
 
 echo ""
 echo -e "  ${BOLD}Summary:${RESET}"
-echo -e "    Domain:     ${BOLD}${DOMAIN}${RESET}"
-echo -e "    TLS:        ${BOLD}$([ "$ENABLE_TLS" = "true" ] && echo "Yes (Let's Encrypt)" || echo "No")${RESET}"
-echo -e "    Ingress:    ${BOLD}${INGRESS_CLASS}${RESET}"
-[ "$ENABLE_TLS" = "true" ] && echo -e "    Email:      ${BOLD}${TLS_EMAIL}${RESET}"
+echo -e "    API domain:       ${BOLD}${DOMAIN}${RESET}"
+[ -n "$DASHBOARD_DOMAIN" ] && echo -e "    Dashboard domain: ${BOLD}${DASHBOARD_DOMAIN}${RESET}"
+echo -e "    TLS:              ${BOLD}$([ "$ENABLE_TLS" = "true" ] && echo "Yes (Let's Encrypt)" || echo "No")${RESET}"
+echo -e "    Ingress:          ${BOLD}${INGRESS_CLASS}${RESET}"
+[ "$ENABLE_TLS" = "true" ] && echo -e "    Email:            ${BOLD}${TLS_EMAIL}${RESET}"
 echo ""
 
 prompt CONFIRM "Proceed? (y/n):" "y"
@@ -236,24 +256,102 @@ EOF
 fi
 
 kubectl apply -f "$MANIFEST_DIR/07-api/ingress.yaml" -n "$NAMESPACE"
-ok "Ingress created"
+ok "Ingress created (API)"
+
+if [ -n "$DASHBOARD_DOMAIN" ]; then
+    info "Creating Ingress (dashboard) ..."
+    mkdir -p "$MANIFEST_DIR/08-dashboard"
+    if [ "$ENABLE_TLS" = "true" ]; then
+        cat > "$MANIFEST_DIR/08-dashboard/ingress.yaml" <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cenotoo-dashboard
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: cenotoo
+  annotations:
+    cert-manager.io/cluster-issuer: cenotoo-letsencrypt
+spec:
+  ingressClassName: ${INGRESS_CLASS}
+  tls:
+    - hosts:
+        - ${DASHBOARD_DOMAIN}
+      secretName: cenotoo-dashboard-tls
+  rules:
+    - host: ${DASHBOARD_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cenotoo-dashboard
+                port:
+                  name: http
+EOF
+    else
+        cat > "$MANIFEST_DIR/08-dashboard/ingress.yaml" <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cenotoo-dashboard
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  ingressClassName: ${INGRESS_CLASS}
+  rules:
+    - host: ${DASHBOARD_DOMAIN}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cenotoo-dashboard
+                port:
+                  name: http
+EOF
+    fi
+    kubectl apply -f "$MANIFEST_DIR/08-dashboard/ingress.yaml" -n "$NAMESPACE"
+    ok "Ingress created (dashboard)"
+fi
 
 if [ "$ENABLE_TLS" = "true" ]; then
-    info "Waiting for TLS certificate ..."
+    info "Waiting for TLS certificate (API) ..."
     ELAPSED=0
     TIMEOUT=120
     while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
         CERT_READY=$(kubectl get certificate cenotoo-api-tls -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
         if [ "$CERT_READY" = "True" ]; then
-            ok "TLS certificate issued"
+            ok "TLS certificate issued (API)"
             break
         fi
         sleep 5
         ELAPSED=$((ELAPSED + 5))
     done
     if [ "$CERT_READY" != "True" ]; then
-        warn "Certificate not ready after ${TIMEOUT}s — it may take a few minutes"
+        warn "API certificate not ready after ${TIMEOUT}s — it may take a few minutes"
         dimtext "Check: kubectl describe certificate cenotoo-api-tls -n $NAMESPACE"
+    fi
+
+    if [ -n "$DASHBOARD_DOMAIN" ]; then
+        info "Waiting for TLS certificate (dashboard) ..."
+        ELAPSED=0
+        while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+            DASH_CERT_READY=$(kubectl get certificate cenotoo-dashboard-tls -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+            if [ "$DASH_CERT_READY" = "True" ]; then
+                ok "TLS certificate issued (dashboard)"
+                break
+            fi
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+        done
+        if [ "$DASH_CERT_READY" != "True" ]; then
+            warn "Dashboard certificate not ready after ${TIMEOUT}s — it may take a few minutes"
+            dimtext "Check: kubectl describe certificate cenotoo-dashboard-tls -n $NAMESPACE"
+        fi
     fi
 fi
 
@@ -264,10 +362,13 @@ PROTOCOL="http"
 [ "$ENABLE_TLS" = "true" ] && PROTOCOL="https"
 
 echo -e "  ┌──────────────────────────────────────────────────┐"
-echo -e "  │  ${GREEN}${BOLD}API exposed successfully${RESET}                        │"
+echo -e "  │  ${GREEN}${BOLD}Exposed successfully${RESET}                            │"
 echo -e "  │                                                  │"
 printf  "  │  %-48s │\n" "API:   ${PROTOCOL}://${DOMAIN}"
 printf  "  │  %-48s │\n" "Docs:  ${PROTOCOL}://${DOMAIN}/docs"
+if [ -n "$DASHBOARD_DOMAIN" ]; then
+    printf  "  │  %-48s │\n" "Dash:  ${PROTOCOL}://${DASHBOARD_DOMAIN}"
+fi
 echo -e "  │                                                  │"
 
 if [ "$ENABLE_TLS" = "true" ]; then
@@ -281,9 +382,18 @@ echo ""
 
 echo -e "  ${BOLD}DNS Setup:${RESET}"
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
-echo -e "  ${DIM}Point your domain to the node's public IP:${RESET}"
+echo -e "  ${DIM}Point your domain(s) to the node's public IP:${RESET}"
 echo -e "  ${DIM}  ${DOMAIN}  →  A record  →  ${NODE_IP}${RESET}"
+[ -n "$DASHBOARD_DOMAIN" ] && echo -e "  ${DIM}  ${DASHBOARD_DOMAIN}  →  A record  →  ${NODE_IP}${RESET}"
 echo ""
+
+if [ -n "$DASHBOARD_DOMAIN" ]; then
+    echo -e "  ${BOLD}Dashboard note:${RESET}"
+    echo -e "  ${DIM}The dashboard's API URL was baked into the bundle at build time.${RESET}"
+    echo -e "  ${DIM}If you built it with a NodePort URL, rebuild with the new domain:${RESET}"
+    echo -e "  ${DIM}  CENOTOO_API_URL=${PROTOCOL}://${DOMAIN} sudo bash scripts/10-deploy-dashboard.sh${RESET}"
+    echo ""
+fi
 
 if [ "$ENABLE_TLS" = "true" ]; then
     echo -e "  ${DIM}Certificate will auto-renew via cert-manager.${RESET}"

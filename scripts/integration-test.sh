@@ -36,9 +36,22 @@ fail()  { printf '\033[1;31m  FAIL\033[0m  %s\n' "$*"; failed=$((failed + 1)); }
 info()  { printf '\033[1;34m  ....\033[0m  %s\n' "$*"; }
 header(){ printf '\n\033[1;36m--- %s ---\033[0m\n' "$*"; }
 
+# Cassandra credentials: load from secret if not pre-set in env.
+# 07-deploy-cenotoo.sh's align_cassandra_password() rotates the password to a
+# random value; defaulting to cassandra/cassandra here would cause every CQL
+# call to fail with "Bad credentials" on a real install.
+if [ -z "${CASSANDRA_USER:-}" ] || [ -z "${CASSANDRA_PASS:-}" ]; then
+    if kubectl get secret -n "$NAMESPACE" cenotoo-cassandra-superuser >/dev/null 2>&1; then
+        CASSANDRA_USER=$(kubectl get secret -n "$NAMESPACE" cenotoo-cassandra-superuser -o jsonpath='{.data.username}' | base64 -d)
+        CASSANDRA_PASS=$(kubectl get secret -n "$NAMESPACE" cenotoo-cassandra-superuser -o jsonpath='{.data.password}' | base64 -d)
+    fi
+fi
+export CASSANDRA_USER="${CASSANDRA_USER:-cassandra}"
+export CASSANDRA_PASS="${CASSANDRA_PASS:-cassandra}"
+
 run_cql() {
     kubectl exec -n "$NAMESPACE" "$CASS_POD" -c cassandra -- \
-        cqlsh -u "${CASSANDRA_USER:-cassandra}" -p "${CASSANDRA_PASS:-cassandra}" -e "$1" < /dev/null 2>/dev/null
+        cqlsh -u "$CASSANDRA_USER" -p "$CASSANDRA_PASS" -e "$1" < /dev/null 2>/dev/null
 }
 
 cleanup() {
@@ -59,6 +72,23 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+
+# ---------------------------------------------------------------------------
+header "Preflight"
+# ---------------------------------------------------------------------------
+for cmd in jq kubectl base64; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        fail "Required command not found: $cmd"
+        exit 1
+    fi
+done
+pass "Required commands available (jq kubectl base64)"
+
+if ! kubectl get ns "$NAMESPACE" >/dev/null 2>&1; then
+    fail "Namespace '$NAMESPACE' not found"
+    exit 1
+fi
+pass "Namespace $NAMESPACE exists"
 
 # ---------------------------------------------------------------------------
 header "Locate Pods & Credentials"

@@ -5,6 +5,11 @@
 # Creates the metadata keyspace and all API tables (user, organization,
 # project, collection, api_keys, revoked_tokens).
 #
+# DEPRECATED: Metadata (organizations, projects, collections, API keys, users,
+# devices, rules) is now stored in PostgreSQL, not Cassandra.
+# Cassandra retains time-series (sensor) data only.
+# Run init-postgres-schema.sh to initialize the metadata database.
+#
 # Safe to re-run — all statements use IF NOT EXISTS.
 #
 # Called automatically by 07-deploy-cenotoo.sh, or run standalone:
@@ -34,17 +39,26 @@ run_cql() {
 
 wait_for_cql() {
     local elapsed=0
+    local out
     info "Waiting for CQL to be responsive on $CASSANDRA_POD ..."
     while [ "$elapsed" -lt "$CQL_TIMEOUT" ]; do
-        if echo "DESCRIBE KEYSPACES;" | run_cql &>/dev/null; then
+        out=$(echo "DESCRIBE KEYSPACES;" | run_cql 2>&1 || true)
+        if echo "$out" | grep -q "system_auth\|system_schema"; then
             return 0
+        fi
+        # Auth failures are not transient — fail fast with the actual cqlsh error.
+        if echo "$out" | grep -qiE "bad credentials|authentication.*fail|not authorized"; then
+            fail "Cassandra auth failed for user '$CASSANDRA_USER'. Check the cenotoo-cassandra-superuser secret. cqlsh said: $(echo "$out" | tr '\n' ' ' | head -c 200)"
         fi
         sleep 5
         elapsed=$((elapsed + 5))
     done
-    fail "CQL not responsive on $CASSANDRA_POD within ${CQL_TIMEOUT}s"
+    fail "CQL not responsive on $CASSANDRA_POD within ${CQL_TIMEOUT}s. Last cqlsh output: $(echo "$out" | tr '\n' ' ' | head -c 200)"
 }
 
+warn "Metadata is now stored in PostgreSQL — run init-postgres-schema.sh for the metadata DB"
+warn "This script only initializes the Cassandra keyspace used for time-series data"
+echo ""
 info "Initializing Cassandra schema (namespace=$NAMESPACE, rf=$CASSANDRA_RF)"
 
 wait_for_cql
@@ -212,28 +226,48 @@ if ! echo "$EXISTING" | grep -q "(0 rows)"; then
     ok "Admin user already exists — skipping"
 else
     echo ""
-    info "No users found. Create the initial admin account."
-    echo ""
 
-    ADMIN_USER="admin"
-    printf "  Admin username [admin]: "
-    read -r _input
-    ADMIN_USER="${_input:-admin}"
+    # Honor env vars from non-interactive callers (e.g. scripts/install.sh).
+    # Only fall back to interactive prompts when stdin is a TTY AND the
+    # variables are unset — this prevents an infinite read loop when the
+    # script runs under tee/pipes during an unattended install.
+    ADMIN_USER="${CENOTOO_ADMIN_USERNAME:-}"
+    ADMIN_PASS="${CENOTOO_ADMIN_PASSWORD:-}"
 
-    ADMIN_PASS=""
-    while [ -z "$ADMIN_PASS" ]; do
-        printf "  Admin password: "
-        read -rs ADMIN_PASS
+    if [ -z "$ADMIN_USER" ] || [ -z "$ADMIN_PASS" ]; then
+        if [ ! -t 0 ]; then
+            fail "No TTY and CENOTOO_ADMIN_USERNAME/CENOTOO_ADMIN_PASSWORD not set"
+            fail "Set both env vars before running this script in non-interactive mode"
+            exit 1
+        fi
+        info "No users found. Create the initial admin account."
         echo ""
-        [ -z "$ADMIN_PASS" ] && warn "Password cannot be empty"
-    done
 
-    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null)
+        if [ -z "$ADMIN_USER" ]; then
+            printf "  Admin username [admin]: "
+            read -r _input
+            ADMIN_USER="${_input:-admin}"
+        fi
+
+        while [ -z "$ADMIN_PASS" ]; do
+            printf "  Admin password: "
+            read -rs ADMIN_PASS
+            echo ""
+            [ -z "$ADMIN_PASS" ] && warn "Password cannot be empty"
+        done
+    else
+        info "Using admin credentials from CENOTOO_ADMIN_USERNAME/PASSWORD env vars"
+    fi
+
+    # `|| true` is required because `set -e` is on: a missing bcrypt module
+    # makes python3 exit non-zero, which would otherwise abort the entire
+    # deploy. We want to fall through to the warn-and-continue branch below.
+    ADMIN_UUID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || true)
     HASHED=$(python3 -c "
 import bcrypt, sys
 h = bcrypt.hashpw(sys.argv[1].encode(), bcrypt.gensalt()).decode()
 print(h)
-" "$ADMIN_PASS" 2>/dev/null)
+" "$ADMIN_PASS" 2>/dev/null || true)
 
     if [ -n "$HASHED" ] && [ -n "$ADMIN_UUID" ]; then
         printf "INSERT INTO metadata.user (id, organization_id, username, password, role) VALUES (%s, %s, '%s', '%s', 'superadmin');\n" \

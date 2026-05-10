@@ -17,7 +17,7 @@
 # stdin — no external coap-client tool required.
 #
 # Credentials (override via env vars):
-#   CENOTOO_ADMIN_USERNAME   API admin username  (default: cenotoo)
+#   CENOTOO_ADMIN_USERNAME   API admin username  (default: admin)
 #   CENOTOO_ADMIN_PASSWORD   API admin password  (required — no default)
 #
 # Prerequisites:
@@ -37,7 +37,7 @@ RUN_ID="coap-$(date +%s)"
 TEST_PROJECT="coaptest${RUN_ID##coap-}"
 TEST_COLLECTION="sensors"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
 passed=0
@@ -222,7 +222,7 @@ fi
 # ---------------------------------------------------------------------------
 header "API Setup"
 # ---------------------------------------------------------------------------
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-cenotoo}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 _RESP_FILE="/tmp/cenotoo_coap_test_resp_$$.json"

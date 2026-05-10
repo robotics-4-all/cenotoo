@@ -20,7 +20,7 @@
 #  15.  Cleanup
 #
 # Credentials (override via env vars):
-#   CENOTOO_ADMIN_USERNAME   API admin username  (default: cenotoo)
+#   CENOTOO_ADMIN_USERNAME   API admin username  (default: admin)
 #   CENOTOO_ADMIN_PASSWORD   API admin password  (required)
 #
 # Prerequisites:  jq, curl, kubectl, Cenotoo deployed (07), API deployed (08)
@@ -38,7 +38,7 @@ RUN_ID="stat-$(date +%s)"
 TEST_PROJECT="stattest${RUN_ID##stat-}"
 TEST_COLLECTION="readings"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
 passed=0
@@ -136,7 +136,7 @@ pass "API port-forward active (pid $PF_API_PID)"
 # ---------------------------------------------------------------------------
 header "API Authentication & Setup"
 # ---------------------------------------------------------------------------
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-cenotoo}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 AUTH_HTTP=$(_api POST "${API_BASE}/token" \

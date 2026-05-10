@@ -13,7 +13,7 @@ RUN_ID="dev-$(date +%s)"
 TEST_PROJECT="xtest${RUN_ID##dev-}"
 TEST_COLLECTION="import_test"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
 passed=0
@@ -58,6 +58,19 @@ _api() {
 
 header "Preflight & Setup"
 
+for cmd in jq curl kubectl; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        fail "Required command not found: $cmd"
+        exit 1
+    fi
+done
+
+if ! kubectl get ns "$NAMESPACE" >/dev/null 2>&1; then
+    fail "Namespace '$NAMESPACE' not found"
+    exit 1
+fi
+
+
 if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
     fail "CENOTOO_ADMIN_PASSWORD is not set"
     exit 1
@@ -88,7 +101,7 @@ until curl -s "http://localhost:${API_PORT}/health" &>/dev/null; do
     fi
 done
 
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-cenotoo}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 AUTH_HTTP=$(_api POST "${API_BASE}/token" -d "username=${ADMIN_USERNAME}&password=${ADMIN_PASSWORD}")

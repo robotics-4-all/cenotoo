@@ -27,19 +27,24 @@ spec:
             - containerPort: 8080
               name: http
           env:
-            - name: CASSANDRA_CONTACT_POINTS
-              value: cenotoo-cassandra
-            - name: CASSANDRA_PORT
-              value: "9042"
-            - name: CASSANDRA_USERNAME
+            - name: POSTGRES_HOST
+              value: cenotoo-postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
-                  name: cenotoo-cassandra-superuser
+                  name: cenotoo-postgres-credentials
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
                   key: username
-            - name: CASSANDRA_PASSWORD
+            - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: cenotoo-cassandra-superuser
+                  name: cenotoo-postgres-credentials
                   key: password
             - name: ORGANIZATION_ID
               value: "00000000-0000-0000-0000-000000000001"

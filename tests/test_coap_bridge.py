@@ -145,12 +145,22 @@ class TestHashKey:
         assert _hash_key("key1") != _hash_key("key2")
 
 
+def _make_pg_conn_coap(fetchone_values):
+    mock_cursor = MagicMock()
+    mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+    mock_cursor.__exit__ = MagicMock(return_value=False)
+    mock_cursor.fetchone.side_effect = fetchone_values
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+    return mock_conn
+
+
 class TestAuthenticate:
     def setup_method(self):
-        _mod._cassandra_session = MagicMock()
+        _mod._pg_conn = None
 
     def teardown_method(self):
-        _mod._cassandra_session = None
+        _mod._pg_conn = None
 
     def _make_key_row(self, project_id, key_type="write"):
         row = MagicMock()
@@ -161,11 +171,6 @@ class TestAuthenticate:
     def _make_org_row(self, name):
         row = MagicMock()
         row.organization_name = name
-        return row
-
-    def _make_project_row(self, name):
-        row = MagicMock()
-        row.project_name = name
         return row
 
     def _make_project_row_with_org(self, name, org_id):
@@ -179,13 +184,13 @@ class TestAuthenticate:
 
         project_id = uuid.uuid4()
         org_id = uuid.uuid4()
-        _mod._cassandra_session.execute.side_effect = [
-            MagicMock(one=MagicMock(return_value=self._make_key_row(project_id, "write"))),
-            MagicMock(
-                one=MagicMock(return_value=self._make_project_row_with_org("myproject", org_id))
-            ),
-            MagicMock(one=MagicMock(return_value=self._make_org_row("myorg"))),
-        ]
+        _mod._pg_conn = _make_pg_conn_coap(
+            [
+                self._make_key_row(project_id, "write"),
+                self._make_project_row_with_org("myproject", org_id),
+                self._make_org_row("myorg"),
+            ]
+        )
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result == str(project_id)
@@ -195,13 +200,13 @@ class TestAuthenticate:
 
         project_id = uuid.uuid4()
         org_id = uuid.uuid4()
-        _mod._cassandra_session.execute.side_effect = [
-            MagicMock(one=MagicMock(return_value=self._make_key_row(project_id, "master"))),
-            MagicMock(
-                one=MagicMock(return_value=self._make_project_row_with_org("myproject", org_id))
-            ),
-            MagicMock(one=MagicMock(return_value=self._make_org_row("myorg"))),
-        ]
+        _mod._pg_conn = _make_pg_conn_coap(
+            [
+                self._make_key_row(project_id, "master"),
+                self._make_project_row_with_org("myproject", org_id),
+                self._make_org_row("myorg"),
+            ]
+        )
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result == str(project_id)
@@ -209,15 +214,13 @@ class TestAuthenticate:
     def test_read_key_is_rejected(self):
         import uuid
 
-        _mod._cassandra_session.execute.return_value = MagicMock(
-            one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "read"))
-        )
+        _mod._pg_conn = _make_pg_conn_coap([self._make_key_row(uuid.uuid4(), "read")])
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
 
     def test_key_not_found_returns_none(self):
-        _mod._cassandra_session.execute.return_value = MagicMock(one=MagicMock(return_value=None))
+        _mod._pg_conn = _make_pg_conn_coap([None])
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
@@ -225,10 +228,12 @@ class TestAuthenticate:
     def test_project_not_found_returns_none(self):
         import uuid
 
-        _mod._cassandra_session.execute.side_effect = [
-            MagicMock(one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))),
-            MagicMock(one=MagicMock(return_value=None)),
-        ]
+        _mod._pg_conn = _make_pg_conn_coap(
+            [
+                self._make_key_row(uuid.uuid4(), "write"),
+                None,
+            ]
+        )
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
@@ -237,13 +242,13 @@ class TestAuthenticate:
         import uuid
 
         org_id = uuid.uuid4()
-        _mod._cassandra_session.execute.side_effect = [
-            MagicMock(one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))),
-            MagicMock(
-                one=MagicMock(return_value=self._make_project_row_with_org("myproject", org_id))
-            ),
-            MagicMock(one=MagicMock(return_value=self._make_org_row("otherorg"))),
-        ]
+        _mod._pg_conn = _make_pg_conn_coap(
+            [
+                self._make_key_row(uuid.uuid4(), "write"),
+                self._make_project_row_with_org("myproject", org_id),
+                self._make_org_row("otherorg"),
+            ]
+        )
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
@@ -252,18 +257,24 @@ class TestAuthenticate:
         import uuid
 
         org_id = uuid.uuid4()
-        _mod._cassandra_session.execute.side_effect = [
-            MagicMock(one=MagicMock(return_value=self._make_key_row(uuid.uuid4(), "write"))),
-            MagicMock(
-                one=MagicMock(return_value=self._make_project_row_with_org("otherproject", org_id))
-            ),
-        ]
+        _mod._pg_conn = _make_pg_conn_coap(
+            [
+                self._make_key_row(uuid.uuid4(), "write"),
+                self._make_project_row_with_org("otherproject", org_id),
+            ]
+        )
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None
 
-    def test_cassandra_error_returns_none(self):
-        _mod._cassandra_session.execute.side_effect = Exception("connection refused")
+    def test_db_error_returns_none(self):
+        mock_cursor = MagicMock()
+        mock_cursor.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_cursor.__exit__ = MagicMock(return_value=False)
+        mock_cursor.execute.side_effect = Exception("connection refused")
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        _mod._pg_conn = mock_conn
 
         result = _authenticate("rawkey", "myorg", "myproject")
         assert result is None

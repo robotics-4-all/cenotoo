@@ -37,10 +37,6 @@ spec:
                 secretKeyRef:
                   name: cenotoo-cassandra-superuser
                   key: password
-          volumeMounts:
-            - name: consumer-src
-              mountPath: /app/consumer.py
-              subPath: consumer.py
           resources:
             requests:
               cpu: "100m"
@@ -48,7 +44,4 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-      volumes:
-        - name: consumer-src
-          configMap:
-            name: cenotoo-consumer-py
+

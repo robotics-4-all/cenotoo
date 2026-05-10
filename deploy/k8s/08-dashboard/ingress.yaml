@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cenotoo-dashboard
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: cenotoo
+  annotations:
+    cert-manager.io/cluster-issuer: cenotoo-letsencrypt
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - dashboard.cenotoo.issel-portal.com
+      secretName: cenotoo-dashboard-tls
+  rules:
+    - host: dashboard.cenotoo.issel-portal.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cenotoo-dashboard
+                port:
+                  name: http

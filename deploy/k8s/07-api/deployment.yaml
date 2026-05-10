@@ -45,6 +45,25 @@ spec:
                 secretKeyRef:
                   name: cenotoo-cassandra-superuser
                   key: password
+            - name: POSTGRES_HOST
+              value: cenotoo-postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: password
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef:
