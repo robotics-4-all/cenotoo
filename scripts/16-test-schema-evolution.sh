@@ -38,7 +38,7 @@ RUN_ID="sch-$(date +%s)"
 TEST_PROJECT="schetest${RUN_ID##sch-}"
 TEST_COLLECTION="readings"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
 passed=0

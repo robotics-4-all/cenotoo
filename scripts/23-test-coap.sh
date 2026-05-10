@@ -37,7 +37,7 @@ RUN_ID="coap-$(date +%s)"
 TEST_PROJECT="coaptest${RUN_ID##coap-}"
 TEST_COLLECTION="sensors"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
 passed=0

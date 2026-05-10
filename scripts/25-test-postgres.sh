@@ -32,10 +32,10 @@ RUN_ID="pgtest-$(date +%s)"
 TEST_PROJECT="pgtest${RUN_ID##pgtest-}"
 TEST_COLLECTION="sensors"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
-PG_POD="cenotoo-postgres-0"
+PG_POD=""
 PG_STATEFULSET="cenotoo-postgres"
 
 passed=0
@@ -67,19 +67,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ---------------------------------------------------------------------------
-# run_psql_cmd <sql> — run a single SQL statement in the postgres pod
-# ---------------------------------------------------------------------------
 run_psql_cmd() {
     local sql="$1"
-    local pg_user
-    pg_user=$(kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" \
-        -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || echo "cenotoo")
-    local pg_db
-    pg_db=$(kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" \
-        -o jsonpath='{.data.database}' 2>/dev/null | base64 -d 2>/dev/null || echo "cenotoo")
     echo "$sql" | kubectl exec -i -n "$NAMESPACE" "$PG_POD" -- \
-        psql -U "$pg_user" -d "$pg_db" --no-password -t -A 2>/dev/null || echo ""
+        psql -U "$PG_USER" -d "$PG_DB" --no-password -t -A 2>/dev/null || echo ""
 }
 
 # ---------------------------------------------------------------------------
@@ -125,6 +116,31 @@ if ! kubectl get ns "$NAMESPACE" &>/dev/null; then
 fi
 pass "Namespace $NAMESPACE exists"
 
+PG_POD=$(kubectl get pod -n "$NAMESPACE" \
+    -l "app.kubernetes.io/component=postgres,app.kubernetes.io/part-of=${RELEASE}" \
+    --field-selector=status.phase=Running \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+if [ -z "$PG_POD" ]; then
+    PG_POD=$(kubectl get pod -n "$NAMESPACE" -l "app=cenotoo-postgres" \
+        --field-selector=status.phase=Running \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+fi
+if [ -z "$PG_POD" ]; then
+    fail "No running PostgreSQL pod found (label app.kubernetes.io/component=postgres)"
+    exit 1
+fi
+pass "PostgreSQL pod: $PG_POD"
+
+if ! kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" >/dev/null 2>&1; then
+    fail "Secret cenotoo-postgres-credentials not found in namespace $NAMESPACE"
+    exit 1
+fi
+PG_USER=$(kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" \
+    -o jsonpath='{.data.username}' | base64 -d)
+PG_DB=$(kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" \
+    -o jsonpath='{.data.database}' | base64 -d)
+pass "PostgreSQL credentials loaded from secret (user=$PG_USER db=$PG_DB)"
+
 # ---------------------------------------------------------------------------
 header "Pod Health"
 # ---------------------------------------------------------------------------
@@ -162,11 +178,6 @@ fi
 # ---------------------------------------------------------------------------
 header "Database Connectivity"
 # ---------------------------------------------------------------------------
-PG_USER=$(kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" \
-    -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || echo "cenotoo")
-PG_DB=$(kubectl get secret cenotoo-postgres-credentials -n "$NAMESPACE" \
-    -o jsonpath='{.data.database}' 2>/dev/null | base64 -d 2>/dev/null || echo "cenotoo")
-
 if kubectl exec -n "$NAMESPACE" "$PG_POD" -- pg_isready -U "$PG_USER" &>/dev/null; then
     pass "pg_isready: PostgreSQL accepting connections"
 else

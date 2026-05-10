@@ -33,7 +33,7 @@ RUN_ID="mqtt-$(date +%s)"
 TEST_PROJECT="mqtttest${RUN_ID##mqtt-}"   # alphanumeric only, max ~30 chars
 TEST_COLLECTION="sensors"
 
-API_PORT=8000
+API_PORT="${API_PORT:-8000}"
 API_BASE="http://localhost:${API_PORT}/api/v1"
 
 passed=0

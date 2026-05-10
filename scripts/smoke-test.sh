@@ -22,6 +22,15 @@ warn()  { printf '\033[1;33m  WARN\033[0m  %s\n' "$*"; warnings=$((warnings + 1)
 header(){ printf '\n\033[1;36m--- %s ---\033[0m\n' "$*"; }
 
 # ---------------------------------------------------------------------------
+header "Preflight"
+# ---------------------------------------------------------------------------
+if ! command -v kubectl >/dev/null 2>&1; then
+    fail "Required command not found: kubectl"
+    exit 1
+fi
+pass "kubectl available"
+
+# ---------------------------------------------------------------------------
 header "Namespace"
 # ---------------------------------------------------------------------------
 if kubectl get ns "$NAMESPACE" &>/dev/null; then

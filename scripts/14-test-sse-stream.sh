@@ -6,9 +6,8 @@ RELEASE="${2:-cenotoo}"
 ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD:?CENOTOO_ADMIN_PASSWORD is required}"
 
-API_NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
-API_PORT=$(kubectl get svc -n "${NAMESPACE}" "${RELEASE}-api" -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "30080")
-BASE_URL="http://${API_NODE_IP}:${API_PORT}/api/v1"
+API_PORT="${API_PORT:-8000}"
+BASE_URL="http://localhost:${API_PORT}/api/v1"
 
 RUN_ID=$(date +%s)
 TEST_PROJECT="ssetest${RUN_ID}"
@@ -17,9 +16,37 @@ TEST_COLLECTION="readings"
 PASS=0
 FAIL=0
 ERRORS=()
+PF_PID=""
 
 pass_test() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 fail_test() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); ERRORS+=("$1"); }
+
+cleanup_pf() {
+    [ -n "${PF_PID:-}" ] && kill "$PF_PID" 2>/dev/null || true
+}
+trap cleanup_pf EXIT
+
+for cmd in jq curl kubectl; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "FATAL: required command not found: $cmd" >&2
+        exit 1
+    fi
+done
+
+if ! kubectl get ns "$NAMESPACE" >/dev/null 2>&1; then
+    echo "FATAL: namespace '$NAMESPACE' not found" >&2
+    exit 1
+fi
+
+echo "[Setup] Starting port-forward to ${RELEASE}-api on :${API_PORT}..."
+kubectl port-forward -n "$NAMESPACE" "svc/${RELEASE}-api" "${API_PORT}:8000" >/dev/null 2>&1 &
+PF_PID=$!
+for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -s -o /dev/null "${BASE_URL}/openapi.json" 2>/dev/null; then
+        break
+    fi
+    sleep 1
+done
 
 api() {
     local method="$1" path="$2"; shift 2
