@@ -32,6 +32,7 @@ source "$SCRIPT_DIR/lib/ui.sh"
 
 # ---- Paths ----------------------------------------------------------------
 CONF_FILE="$PROJECT_DIR/.install.conf"
+STATE_FILE="$PROJECT_DIR/.install.state"
 SECRETS_OUT_DIR="$PROJECT_DIR/.secrets"
 SECRETS_OUT_FILE="$SECRETS_OUT_DIR/credentials.txt"
 LOG_FILE="$PROJECT_DIR/.install.log"
@@ -47,6 +48,7 @@ MODE="install"
 RESUME=false
 PLAN_ONLY=false
 FORCE_NO_MONITORING=false
+FORCE_RERUN=false
 
 usage() {
     cat <<EOF
@@ -56,13 +58,17 @@ Usage:  sudo $0 [options]
 
 Options:
   --plan-only        Print the install plan and exit (no changes made).
-  --resume           Use the saved .install.conf and skip interactive prompts.
+  --resume           Use the saved .install.conf and skip steps already
+                     marked complete in .install.state.
+  --force            Re-run every step even if marked complete in
+                     .install.state. Useful after editing scripts.
   --uninstall        Remove the cenotoo namespace and its manifests.
   --no-monitoring    Skip the Prometheus + Grafana stack.
   -h, --help         Show this help and exit.
 
 Files written:
   .install.conf      Saved configuration (re-used by --resume).
+  .install.state     Per-step completion markers (--resume skips done steps).
   .secrets/credentials.txt   Generated passwords/secrets (chmod 600).
   .install.log       Combined install log.
 EOF
@@ -72,12 +78,25 @@ for arg in "$@"; do
     case "$arg" in
         --plan-only)     PLAN_ONLY=true ;;
         --resume)        RESUME=true ;;
+        --force)         FORCE_RERUN=true ;;
         --uninstall)     MODE="uninstall" ;;
         --no-monitoring) FORCE_NO_MONITORING=true ;;
         -h|--help)       usage; exit 0 ;;
         *) fail "Unknown option: $arg (try --help)" ;;
     esac
 done
+
+is_done() {
+    [ -f "$STATE_FILE" ] && grep -qFx "$1" "$STATE_FILE"
+}
+mark_done() {
+    mkdir -p "$(dirname "$STATE_FILE")"
+    touch "$STATE_FILE"
+    chmod 600 "$STATE_FILE" 2>/dev/null || true
+    if ! grep -qFx "$1" "$STATE_FILE" 2>/dev/null; then
+        echo "$1" >> "$STATE_FILE"
+    fi
+}
 
 # ---- Logging tee ----------------------------------------------------------
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -362,12 +381,20 @@ run_step() {
             return 0
         fi
     fi
+    if [ "$FORCE_RERUN" != "true" ] && is_done "$script"; then
+        hr
+        info "→ $label"
+        dimtext "  already completed (use --force to re-run)"
+        hr
+        return 0
+    fi
     hr
     info "→ $label"
     hr
     if ! "$path"; then
         fail "Step failed: $label  (see $LOG_FILE)"
     fi
+    mark_done "$script"
 }
 
 # ---- Infra operators ------------------------------------------------------
