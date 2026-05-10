@@ -205,6 +205,7 @@ if [ "$RESUME" = "true" ]; then
     info "Loading saved configuration from $CONF_FILE"
     # shellcheck disable=SC1090
     source "$CONF_FILE"
+    : "${RUN_FULL_TESTS:=false}"
     ok "Configuration loaded"
 else
     # ---- Exposure model ---------------------------------------------------
@@ -264,6 +265,10 @@ else
     fi
     prompt_yesno INSTALL_DASHBOARD "Install web dashboard? (requires ../cenotoo-dashboard checkout)" "$DEFAULT_DASHBOARD"
 
+    # Post-install verification: smoke-test always runs (read-only); the full
+    # suite is opt-in because it produces test data in real keyspaces/topics.
+    prompt_yesno RUN_FULL_TESTS "Run full test suite after install? (smoke test always runs)" "y"
+
     # ---- Persist config ---------------------------------------------------
     umask 077
     cat > "$CONF_FILE" <<EOF
@@ -282,6 +287,7 @@ INSTALL_MQTT=$INSTALL_MQTT
 INSTALL_COAP=$INSTALL_COAP
 INSTALL_FLINK_JOBS=$INSTALL_FLINK_JOBS
 INSTALL_DASHBOARD=$INSTALL_DASHBOARD
+RUN_FULL_TESTS=$RUN_FULL_TESTS
 EOF
     chmod 600 "$CONF_FILE"
     ok "Configuration saved to $CONF_FILE (chmod 600)"
@@ -472,6 +478,41 @@ if [ "$EXPOSE_MODE" = "ingress-tls" ]; then
 fi
 
 # =============================================================================
+# 4b. POST-INSTALL VERIFICATION
+# =============================================================================
+hr
+info "→ Post-install verification"
+hr
+
+SMOKE_RESULT="skipped"
+SUITE_RESULT="skipped"
+
+if [ -x "$SCRIPT_DIR/smoke-test.sh" ]; then
+    if "$SCRIPT_DIR/smoke-test.sh" cenotoo cenotoo; then
+        SMOKE_RESULT="passed"
+        ok "Smoke test passed"
+    else
+        SMOKE_RESULT="failed"
+        warn "Smoke test reported failures — see output above"
+    fi
+else
+    warn "smoke-test.sh not found — skipping"
+fi
+
+if [ "${RUN_FULL_TESTS:-false}" = "true" ] && [ -x "$SCRIPT_DIR/run-all-tests.sh" ]; then
+    info "Running full test suite (this may take several minutes)…"
+    if CENOTOO_ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}" \
+       CENOTOO_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+       "$SCRIPT_DIR/run-all-tests.sh" cenotoo cenotoo; then
+        SUITE_RESULT="passed"
+        ok "Full test suite passed"
+    else
+        SUITE_RESULT="failed"
+        warn "Full test suite reported failures — see output above"
+    fi
+fi
+
+# =============================================================================
 # 5. SUMMARY
 # =============================================================================
 step 5 5 "Summary"
@@ -511,7 +552,10 @@ box \
     "" \
     "API:       $API_URL" \
     "Docs:      $DOCS_URL" \
-    "Admin:     admin / (see .secrets/credentials.txt)"
+    "Admin:     admin / (see .secrets/credentials.txt)" \
+    "" \
+    "Smoke test: $SMOKE_RESULT" \
+    "Full suite: $SUITE_RESULT"
 echo ""
 
 echo -e "  ${BOLD}Next steps${RESET}"
@@ -528,6 +572,10 @@ echo ""
 echo -e "  4. ${BOLD}Login & get a token:${RESET}"
 echo -e "     curl -X POST $API_URL/api/v1/token \\"
 echo -e "       -d 'username=admin&password=<see-credentials-file>'"
+echo ""
+echo -e "  5. ${BOLD}Re-run tests anytime:${RESET}"
+echo -e "     ${DIM}sudo $SCRIPT_DIR/smoke-test.sh${RESET}"
+echo -e "     ${DIM}sudo CENOTOO_ADMIN_PASSWORD=\$ADMIN_PASSWORD $SCRIPT_DIR/run-all-tests.sh${RESET}"
 echo ""
 
 if [ "$EXPOSE_MODE" = "nodeport" ]; then
