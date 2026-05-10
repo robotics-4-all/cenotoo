@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cenotoo-coap-bridge
+  labels:
+    app.kubernetes.io/component: coap-bridge
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: coap-bridge
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: coap-bridge
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: coap-bridge
+          image: coap-bridge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: coap-udp
+              containerPort: 5683
+              protocol: UDP
+            - name: health-http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: COAP_HOST
+              value: "::"
+            - name: COAP_PORT
+              value: "5683"
+            - name: HEALTH_PORT
+              value: "8080"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: cenotoo-kafka-kafka-bootstrap:9092
+            - name: POSTGRES_HOST
+              value: cenotoo-postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: password
+            - name: MAX_PAYLOAD_BYTES
+              value: "1024"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

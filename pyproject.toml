@@ -1,12 +1,11 @@
 [project]
-name = "ecoready-infra"
+name = "cenotoo"
 version = "0.1.0"
-description = "ECO-READY distributed data streaming infrastructure"
+description = "Cenotoo distributed data streaming infrastructure"
 requires-python = ">=3.8"
 dependencies = [
     "confluent-kafka",
     "cassandra-driver",
-    "python-dotenv",
 ]
 
 [project.optional-dependencies]
@@ -34,8 +33,6 @@ select = [
     "SIM",
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"cassandra/create_cassandra_tables.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"

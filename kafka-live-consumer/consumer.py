@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 # Kafka configurations from environment variables
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_USERNAME = os.getenv("KAFKA_USERNAME", "")
+KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
+KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", "SCRAM-SHA-512")
+KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "your_collection_name")
 PROJECT_NAME = os.getenv("PROJECT_NAME", "your_project_name")
 ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "your_organization_name")
@@ -31,13 +35,21 @@ signal.signal(signal.SIGINT, _signal_handler)
 
 
 def get_kafka_consumer():
-    return Consumer(
-        {
-            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-            "group.id": GROUP_ID,
-            "auto.offset.reset": "latest",
-        }
-    )
+    consumer_config = {
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "group.id": GROUP_ID,
+        "auto.offset.reset": "latest",
+    }
+    if KAFKA_USERNAME and KAFKA_PASSWORD:
+        consumer_config.update(
+            {
+                "security.protocol": KAFKA_SECURITY_PROTOCOL,
+                "sasl.mechanism": KAFKA_SASL_MECHANISM,
+                "sasl.username": KAFKA_USERNAME,
+                "sasl.password": KAFKA_PASSWORD,
+            }
+        )
+    return Consumer(consumer_config)
 
 
 def consume_and_broadcast(consumer, topic):

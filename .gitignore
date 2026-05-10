@@ -22,7 +22,23 @@ htmlcov/
 *.pid
 
 .env
+.env.*
+!.env.example
+
+# All generated secret manifests — never commit real credentials
+deploy/k8s/01-secrets/*.yaml
+!deploy/k8s/01-secrets/*.yaml.example
+
+# Private keys, certificates, keystores
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+*.jks
 
 cassandra1_data/
 cassandra2_data/
 recovery/
+
+.envsitter

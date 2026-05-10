@@ -4,7 +4,11 @@ import os
 import re
 import signal
 import time
+import uuid
+from datetime import datetime
 
+from cassandra import InvalidRequest
+from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import Cluster
 from confluent_kafka import Consumer, KafkaError, KafkaException
 
@@ -16,11 +20,18 @@ logger = logging.getLogger(__name__)
 
 # Kafka and Cassandra configurations from environment variables
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_USERNAME = os.getenv("KAFKA_USERNAME", "")
+KAFKA_PASSWORD = os.getenv("KAFKA_PASSWORD", "")
+KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", "SCRAM-SHA-512")
+KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_PLAINTEXT")
+KAFKA_CONSUMER_GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "cenotoo_cassandra_writer")
 CASSANDRA_CONTACT_POINTS = [os.getenv("CASSANDRA_CONTACT_POINTS", "localhost")]
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "your_collection_name")
-PROJECT_NAME = os.getenv("PROJECT_NAME", "your_project_name")
-ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "your_organization_name")
+CASSANDRA_USERNAME = os.getenv("CASSANDRA_USERNAME", "")
+CASSANDRA_PASSWORD = os.getenv("CASSANDRA_PASSWORD", "")
+
+# Regex pattern to subscribe to all org.project.collection topics
+TOPIC_PATTERN = "^[a-zA-Z_][a-zA-Z0-9_]*\\.[a-zA-Z_][a-zA-Z0-9_]*\\.[a-zA-Z_][a-zA-Z0-9_]*$"
 
 # Valid CQL identifier pattern (alphanumeric + underscore only)
 _VALID_IDENTIFIER = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
@@ -38,6 +49,24 @@ signal.signal(signal.SIGTERM, _signal_handler)
 signal.signal(signal.SIGINT, _signal_handler)
 
 
+def _coerce_value(value, cql_type):
+    if value is None or cql_type is None:
+        return value
+    if isinstance(value, str):
+        type_name = getattr(cql_type, "typename", "")
+        if type_name == "timestamp":
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                pass
+        elif type_name in ("uuid", "timeuuid"):
+            try:
+                return uuid.UUID(value)
+            except (ValueError, AttributeError):
+                pass
+    return value
+
+
 def _validate_identifier(name):
     """Validate that a CQL identifier contains only safe characters."""
     if not _VALID_IDENTIFIER.match(name):
@@ -48,10 +77,14 @@ def _validate_identifier(name):
     return name
 
 
-def _connect_cassandra(contact_points, port, max_retries=5):
+def _connect_cassandra(contact_points, port, username="", password="", max_retries=5):
+    auth_provider = None
+    if username and password:
+        auth_provider = PlainTextAuthProvider(username=username, password=password)
+
     for attempt in range(1, max_retries + 1):
         try:
-            cluster = Cluster(contact_points, port=port)
+            cluster = Cluster(contact_points, port=port, auth_provider=auth_provider)
             session = cluster.connect()
             logger.info("Connected to Cassandra (attempt %d/%d)", attempt, max_retries)
             return cluster, session
@@ -69,26 +102,36 @@ def _connect_cassandra(contact_points, port, max_retries=5):
     raise RuntimeError("Failed to connect to Cassandra")
 
 
-def consume_and_store(topic_name, keyspace_name, table_name):
-    _validate_identifier(keyspace_name)
-    _validate_identifier(table_name)
-
-    cluster, session = _connect_cassandra(CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT)
-
-    # Cache for prepared statements keyed by frozenset of column names
-    prepared_cache = {}
-
-    consumer = Consumer(
-        {
-            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-            "group.id": f"{topic_name}_cassandra_writer",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        }
+def consume_and_store():
+    cluster, session = _connect_cassandra(
+        CASSANDRA_CONTACT_POINTS, CASSANDRA_PORT, CASSANDRA_USERNAME, CASSANDRA_PASSWORD
     )
 
-    consumer.subscribe([topic_name])
-    logger.info("Subscribed to topic: %s", topic_name)
+    # Cache for prepared statements keyed by (keyspace, table, frozenset of column names)
+    prepared_cache = {}
+
+    consumer_config = {
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "group.id": KAFKA_CONSUMER_GROUP,
+        "auto.offset.reset": "earliest",
+        "enable.auto.commit": False,
+    }
+    if KAFKA_USERNAME and KAFKA_PASSWORD:
+        consumer_config.update(
+            {
+                "security.protocol": KAFKA_SECURITY_PROTOCOL,
+                "sasl.mechanism": KAFKA_SASL_MECHANISM,
+                "sasl.username": KAFKA_USERNAME,
+                "sasl.password": KAFKA_PASSWORD,
+            }
+        )
+
+    consumer = Consumer(consumer_config)
+
+    consumer.subscribe([TOPIC_PATTERN])
+    logger.info("Subscribed to topic pattern: %s", TOPIC_PATTERN)
+
+    _logged_no_topics = False
 
     try:
         while not _shutdown:
@@ -96,10 +139,40 @@ def consume_and_store(topic_name, keyspace_name, table_name):
             if msg is None:
                 continue
             if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
+                err_code = msg.error().code()
+                if err_code == KafkaError._PARTITION_EOF:
                     continue
-                else:
-                    raise KafkaException(msg.error())
+                # On a fresh install no topics match TOPIC_PATTERN yet; broker
+                # responds with UNKNOWN_TOPIC_OR_PART on every poll until the
+                # first producer publishes. Treat it as benign — log once,
+                # then keep polling. Topics auto-create when MQTT/CoAP/REST
+                # produces a message and the regex subscription picks them up.
+                if err_code == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                    if not _logged_no_topics:
+                        logger.info(
+                            "No Kafka topics match %s yet — waiting for first producer",
+                            TOPIC_PATTERN,
+                        )
+                        _logged_no_topics = True
+                    time.sleep(5)
+                    continue
+                raise KafkaException(msg.error())
+
+            topic = msg.topic()
+            parts = topic.split(".")
+            if len(parts) != 3:
+                logger.warning("Skipping message from unexpected topic format: %s", topic)
+                consumer.commit(message=msg, asynchronous=False)
+                continue
+
+            org, project, collection = parts
+            try:
+                keyspace_name = _validate_identifier(org)
+                table_name = _validate_identifier(f"{project}_{collection}")
+            except ValueError as exc:
+                logger.warning("Skipping message — invalid identifiers in topic %s: %s", topic, exc)
+                consumer.commit(message=msg, asynchronous=False)
+                continue
 
             message_data = json.loads(msg.value().decode("utf-8"))
             message_data["key"] = msg.key().decode("utf-8") if msg.key() else None
@@ -109,19 +182,45 @@ def consume_and_store(topic_name, keyspace_name, table_name):
                 _validate_identifier(col_name)
                 columns.append(col_name)
 
-            col_key = frozenset(columns)
+            col_key = (keyspace_name, table_name, frozenset(columns))
             if col_key not in prepared_cache:
                 col_str = ", ".join(columns)
-                placeholders = ", ".join(["%s"] * len(columns))
+                placeholders = ", ".join(["?"] * len(columns))
                 query = (
                     f"INSERT INTO {keyspace_name}.{table_name} ({col_str}) VALUES ({placeholders})"
                 )
-                prepared_cache[col_key] = session.prepare(query)
-                logger.info("Prepared new statement for columns: %s", columns)
+                try:
+                    prepared_cache[col_key] = session.prepare(query)
+                except InvalidRequest as exc:
+                    logger.warning(
+                        "Skipping message — schema mismatch for %s.%s: %s",
+                        keyspace_name,
+                        table_name,
+                        exc,
+                    )
+                    consumer.commit(message=msg, asynchronous=False)
+                    continue
+                logger.info(
+                    "Prepared new statement for %s.%s columns: %s",
+                    keyspace_name,
+                    table_name,
+                    columns,
+                )
 
             prepared = prepared_cache[col_key]
-            values = [message_data[col] for col in columns]
-            session.execute(prepared, values)
+            type_map = {meta[2]: meta[3] for meta in (prepared.column_metadata or [])}
+            values = [_coerce_value(message_data[col], type_map.get(col)) for col in columns]
+            try:
+                session.execute(prepared, values)
+            except TypeError as exc:
+                logger.warning(
+                    "Skipping message — type coercion failed for %s.%s: %s",
+                    keyspace_name,
+                    table_name,
+                    exc,
+                )
+                consumer.commit(message=msg, asynchronous=False)
+                continue
 
             # Commit offset after successful write
             consumer.commit(message=msg, asynchronous=False)
@@ -137,6 +236,4 @@ def consume_and_store(topic_name, keyspace_name, table_name):
 
 
 if __name__ == "__main__":
-    topic = f"{ORGANIZATION_NAME}.{PROJECT_NAME}.{COLLECTION_NAME}"
-    table = f"{PROJECT_NAME}_{COLLECTION_NAME}"
-    consume_and_store(topic, ORGANIZATION_NAME, table)
+    consume_and_store()

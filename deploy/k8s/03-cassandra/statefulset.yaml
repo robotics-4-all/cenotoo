@@ -1,0 +1,150 @@
+# =============================================================================
+# Cassandra StatefulSet — raw K8s manifest (no operator)
+# =============================================================================
+# Replaces K8ssandra operator with direct control over JVM heap and config.
+# JVM heap is explicitly set via MAX_HEAP_SIZE / HEAP_NEWSIZE env vars,
+# preventing auto-calculation from host memory (/proc/meminfo).
+#
+# Auth: PasswordAuthenticator enabled via init container config patching.
+# Default superuser: cassandra/cassandra (change after first boot).
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cenotoo-cassandra
+  labels:
+    app.kubernetes.io/part-of: cenotoo
+    app.kubernetes.io/component: cassandra
+spec:
+  serviceName: cenotoo-cassandra
+  # Single node for dev/k3s. Scale to 2+ for production.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: cassandra
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: cassandra
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 120
+      # -------------------------------------------------------------------
+      # Init container: patch cassandra.yaml to enable authentication
+      # -------------------------------------------------------------------
+      initContainers:
+        - name: config-init
+          image: cassandra:4.1.3
+          command:
+            - sh
+            - -c
+            - |
+              cp -r /etc/cassandra/* /cassandra-config/
+              # Enable password authentication
+              sed -i 's/^authenticator:.*/authenticator: PasswordAuthenticator/' /cassandra-config/cassandra.yaml
+              sed -i 's/^authorizer:.*/authorizer: CassandraAuthorizer/' /cassandra-config/cassandra.yaml
+              sed -i 's/^role_manager:.*/role_manager: CassandraRoleManager/' /cassandra-config/cassandra.yaml
+          volumeMounts:
+            - name: cassandra-config
+              mountPath: /cassandra-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      containers:
+        - name: cassandra
+          image: cassandra:4.1.3
+          ports:
+            - containerPort: 9042
+              name: cql
+            - containerPort: 7000
+              name: intra-node
+            - containerPort: 7001
+              name: tls-intra-node
+            - containerPort: 7199
+              name: jmx
+          env:
+            # ---------------------------------------------------------------
+            # JVM Heap — explicitly set, prevents /proc/meminfo auto-calc
+            # For dev: 1024M heap fits in 4Gi container limit.
+            # For production: increase to 4G-8G with proportional mem limit.
+            # ---------------------------------------------------------------
+            - name: MAX_HEAP_SIZE
+              value: "1024M"
+            - name: HEAP_NEWSIZE
+              value: "256M"
+            # ---------------------------------------------------------------
+            # Cluster configuration
+            # ---------------------------------------------------------------
+            - name: CASSANDRA_CLUSTER_NAME
+              value: "cenotoo"
+            - name: CASSANDRA_DC
+              value: "dc1"
+            - name: CASSANDRA_RACK
+              value: "rack1"
+            - name: CASSANDRA_ENDPOINT_SNITCH
+              value: "GossipingPropertyFileSnitch"
+            - name: CASSANDRA_NUM_TOKENS
+              value: "16"
+            # Seed = first pod in StatefulSet
+            - name: CASSANDRA_SEEDS
+              value: "cenotoo-cassandra-0.cenotoo-cassandra.cenotoo.svc.cluster.local"
+            # Pod name for logging
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            # Patched config from init container
+            - name: cassandra-config
+              mountPath: /etc/cassandra
+            # Persistent data
+            - name: cassandra-data
+              mountPath: /var/lib/cassandra
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              # 4Gi is ample for 1024M heap + off-heap + OS overhead
+              memory: "4Gi"
+          # Readiness: node is Up/Normal in the cluster
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - 'nodetool status 2>/dev/null | grep -q "^UN"'
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 5
+          # Liveness: CQL port is accepting connections
+          livenessProbe:
+            tcpSocket:
+              port: 9042
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: cassandra-config
+          emptyDir: {}
+  # -------------------------------------------------------------------------
+  # Persistent storage for Cassandra data
+  # -------------------------------------------------------------------------
+  volumeClaimTemplates:
+    - metadata:
+        name: cassandra-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # k3s: local-path. Change to gp3/standard for cloud.
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 10Gi

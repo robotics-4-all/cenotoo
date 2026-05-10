@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cenotoo-api
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/part-of: cenotoo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: cenotoo-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: KAFKA_BROKERS
+              value: cenotoo-kafka-kafka-bootstrap:9092
+            - name: CASSANDRA_CONTACT_POINTS
+              value: cenotoo-cassandra
+            - name: CASSANDRA_PORT
+              value: "9042"
+            - name: CASSANDRA_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-cassandra-superuser
+                  key: username
+            - name: CASSANDRA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-cassandra-superuser
+                  key: password
+            - name: POSTGRES_HOST
+              value: cenotoo-postgres
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: database
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-postgres-credentials
+                  key: password
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-api-secrets
+                  key: jwt-secret-key
+            - name: API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-api-secrets
+                  key: api-key-secret
+            - name: ORGANIZATION_ID
+              value: "00000000-0000-0000-0000-000000000001"
+            - name: CORS_ORIGINS
+              value: "*"
+            - name: FLINK_SQL_GATEWAY_URL
+              value: "http://cenotoo-flink-sql-gateway.cenotoo.svc.cluster.local:8083"
+            - name: JWT_EXPIRATION_MINUTES
+              value: "1440"
+            - name: OTLP_SERVICE_NAME
+              value: "cenotoo-api"
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

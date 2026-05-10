@@ -1,0 +1,24 @@
+# Headless service for Cassandra StatefulSet peer discovery.
+# Consumers connect via: cenotoo-cassandra.cenotoo.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: cenotoo-cassandra
+  labels:
+    app.kubernetes.io/part-of: cenotoo
+    app.kubernetes.io/component: cassandra
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/component: cassandra
+    app.kubernetes.io/part-of: cenotoo
+  ports:
+    - name: cql
+      port: 9042
+      targetPort: 9042
+    - name: intra-node
+      port: 7000
+      targetPort: 7000
+    - name: jmx
+      port: 7199
+      targetPort: 7199
