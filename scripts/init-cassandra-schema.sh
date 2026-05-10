@@ -39,15 +39,21 @@ run_cql() {
 
 wait_for_cql() {
     local elapsed=0
+    local out
     info "Waiting for CQL to be responsive on $CASSANDRA_POD ..."
     while [ "$elapsed" -lt "$CQL_TIMEOUT" ]; do
-        if echo "DESCRIBE KEYSPACES;" | run_cql &>/dev/null; then
+        out=$(echo "DESCRIBE KEYSPACES;" | run_cql 2>&1 || true)
+        if echo "$out" | grep -q "system_auth\|system_schema"; then
             return 0
+        fi
+        # Auth failures are not transient — fail fast with the actual cqlsh error.
+        if echo "$out" | grep -qiE "bad credentials|authentication.*fail|not authorized"; then
+            fail "Cassandra auth failed for user '$CASSANDRA_USER'. Check the cenotoo-cassandra-superuser secret. cqlsh said: $(echo "$out" | tr '\n' ' ' | head -c 200)"
         fi
         sleep 5
         elapsed=$((elapsed + 5))
     done
-    fail "CQL not responsive on $CASSANDRA_POD within ${CQL_TIMEOUT}s"
+    fail "CQL not responsive on $CASSANDRA_POD within ${CQL_TIMEOUT}s. Last cqlsh output: $(echo "$out" | tr '\n' ' ' | head -c 200)"
 }
 
 warn "Metadata is now stored in PostgreSQL — run init-postgres-schema.sh for the metadata DB"
