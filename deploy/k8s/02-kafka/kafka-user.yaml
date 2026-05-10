@@ -2,6 +2,7 @@ apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: cenotoo-consumer
+  namespace: cenotoo
   labels:
     strimzi.io/cluster: cenotoo-kafka
     app.kubernetes.io/part-of: cenotoo
