@@ -561,17 +561,23 @@ ADMIN_PASSWORD=$ADMIN_PASSWORD
 EOF
 chmod 600 "$SECRETS_OUT_FILE"
 
-# URLs
+# URLs — query live Ingress resources rather than guessing from $DOMAIN.
+# 09-expose-api.sh prompts for its own API/dashboard subdomains (e.g. api.<base>),
+# so install.sh's bare $DOMAIN does not reflect the actual deployed hosts.
 NODE_IP="${EXTERNAL_IP:-}"
 [ -z "$NODE_IP" ] && NODE_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo '<node-ip>')"
 
+API_URL=""
+DASH_URL=""
 if [ "$EXPOSE_MODE" = "ingress-tls" ]; then
-    API_URL="https://$DOMAIN"
-    DOCS_URL="https://$DOMAIN/docs"
-else
-    API_URL="http://$NODE_IP:30080"
-    DOCS_URL="http://$NODE_IP:30080/docs"
+    API_HOST=$(kubectl get ingress -n cenotoo cenotoo-api -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || echo "")
+    DASH_HOST=$(kubectl get ingress -n cenotoo cenotoo-dashboard -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || echo "")
+    [ -n "$API_HOST" ] && API_URL="https://$API_HOST"
+    [ -n "$DASH_HOST" ] && DASH_URL="https://$DASH_HOST"
 fi
+[ -z "$API_URL" ] && API_URL="http://$NODE_IP:30080"
+[ -z "$DASH_URL" ] && DASH_URL="http://$NODE_IP:30081"
+DOCS_URL="$API_URL/docs"
 
 echo ""
 box \
@@ -579,6 +585,7 @@ box \
     "" \
     "API:       $API_URL" \
     "Docs:      $DOCS_URL" \
+    "Dashboard: $DASH_URL" \
     "Admin:     admin / (see .secrets/credentials.txt)" \
     "" \
     "Smoke test: $SMOKE_RESULT" \
