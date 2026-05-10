@@ -6,34 +6,15 @@ metadata:
     strimzi.io/cluster: cenotoo-kafka
     app.kubernetes.io/part-of: cenotoo
 spec:
+  # SCRAM-SHA-512 credentials for clients connecting on the TLS listener (port 9093).
+  # The plain listener on 9092 is unauthenticated and used by in-cluster consumers,
+  # so this user only matters for external/authenticated clients.
+  #
+  # Authorization (ACLs) is intentionally NOT declared here: the Kafka cluster does
+  # not enable simple authorization (spec.kafka.authorization is unset), and Strimzi
+  # rejects KafkaUsers with ACLs against a cluster that has no authorizer — that
+  # rejection prevents the User Operator from creating the credentials secret.
+  # If ACL enforcement is ever needed, also add `authorization: {type: simple}` to
+  # spec.kafka in kafka-cluster.yaml (and update consumer manifests accordingly).
   authentication:
     type: scram-sha-512
-  authorization:
-    type: simple
-    acls:
-      - resource:
-          type: topic
-          name: "*"
-          patternType: literal
-        operations:
-          - Read
-          - Describe
-        host: "*"
-      - resource:
-          type: group
-          name: "*"
-          patternType: literal
-        operations:
-          - Read
-          - Describe
-        host: "*"
-      - resource:
-          type: topic
-          name: "*"
-          patternType: literal
-        operations:
-          - Write
-          - Create
-          - Delete
-          - Describe
-        host: "*"
