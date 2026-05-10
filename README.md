@@ -30,7 +30,7 @@
   <img src="https://img.shields.io/badge/PostgreSQL-Metadata-336791?logo=postgresql&logoColor=white" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/MQTT-Mosquitto-660066?logo=eclipsemosquitto&logoColor=white" alt="Mosquitto" />
   <img src="https://img.shields.io/badge/Kubernetes-k3s-326CE5?logo=kubernetes&logoColor=white" alt="Kubernetes" />
-  <img src="https://img.shields.io/badge/tests-493_passing-brightgreen" alt="493 tests passing" />
+  <img src="https://img.shields.io/badge/tests-94_unit_+_13_integration-brightgreen" alt="tests" />
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/License-Apache_2.0-orange?logo=apache&logoColor=white" alt="Apache 2.0" />
   </a>
@@ -40,7 +40,7 @@
 
 ## What is Cenotoo?
 
-Cenotoo is a **self-hosted, production-ready data platform** built for IoT and cyber-physical systems. It wires together Apache Kafka, Cassandra, Flink, PostgreSQL, and FastAPI into a single cohesive stack — with MQTT and CoAP ingestion bridges, real-time SSE streaming, a device shadow system, and full Kubernetes observability on top.
+Cenotoo is a **self-hosted, production-ready data platform** built for IoT and cyber-physical systems. It wires together Apache Kafka, Cassandra, Flink, PostgreSQL, and FastAPI into a single cohesive stack — with **MQTT, CoAP, and HTTP** ingestion paths, real-time SSE streaming, a device shadow system, a React web dashboard, and full Kubernetes observability on top.
 
 There is no hosted version. You own your data, your infrastructure, and your pipeline.
 
@@ -54,19 +54,20 @@ There is no hosted version. You own your data, your infrastructure, and your pip
                     ┌─────────────────────────────────────────────────────────────┐
                     │                     Cenotoo Platform                        │
                     │                                                             │
-  MQTT Devices ───► │  Mosquitto ──► MQTT Bridge ──────────────────┐             │
-  CoAP Devices ───► │  CoAP Bridge ─────────────────────────────── ┤             │
-                    │                                               ▼             │
-  HTTP Clients ───► │  REST API (FastAPI) ──────────────►  Kafka (KRaft)          │
-                    │  ├─ POST /send_data                    │         │          │
-                    │  ├─ GET  /get_data                     ▼         ▼          │
-                    │  ├─ GET  /stream (SSE) ◄──┐        Flink    Consumer        │
-                    │  ├─ GET  /statistics      │        (SQL)     Bridge         │
-                    │  ├─ CRUD /devices         │          │         │            │
-                    │  ├─ GET  /shadow          │          └────┬────┘            │
-                    │  └─ PATCH /schema         │               ▼                 │
-                    │                           └────────  Cassandra              │
-                    │  PostgreSQL (metadata) ◄──────────── REST API               │
+  MQTT Devices ───► │  Mosquitto ──► MQTT Bridge ──────────────┐                 │
+  CoAP Devices ───► │  CoAP Bridge  ───────────────────────────┤                 │
+                    │                                           ▼                 │
+  HTTP Clients ───► │  REST API (FastAPI) ──────────►   Kafka (KRaft)             │
+   Web Browser ───► │  Dashboard (React SPA) ──► REST API   │      │              │
+                    │  ├─ POST /send_data                   ▼      ▼              │
+                    │  ├─ GET  /get_data                 Flink   Consumer         │
+                    │  ├─ GET  /stream (SSE) ◄──┐        (SQL)    Bridge          │
+                    │  ├─ GET  /statistics      │          │       │              │
+                    │  ├─ CRUD /devices         │          └───┬───┘              │
+                    │  ├─ GET  /shadow          │              ▼                  │
+                    │  └─ PATCH /schema         └────────  Cassandra              │
+                    │                                                             │
+                    │  PostgreSQL (orgs · projects · users · keys · devices)      │
                     │                                                             │
                     │  ┌──────────────────────────────────────────────────────┐  │
                     │  │         Prometheus  ·  Grafana  ·  Alert Rules       │  │
@@ -99,6 +100,8 @@ There is no hosted version. You own your data, your infrastructure, and your pip
 | 18 | **Data Export** — download full collection data as CSV or Parquet | `GET /export` | ✅ |
 | 19 | **Bulk Import** — upload CSV or JSON files with partial success handling and per-record error reporting | `POST /import` | ✅ |
 | 20 | **Webhooks & Alerts** — define threshold rules that fire HTTP webhooks when data conditions are met | `CRUD /rules` | ✅ |
+| 21 | **Web Dashboard** — React + Vite SPA for orgs, projects, collections, devices, API keys, live data, and dashboards | served via NodePort `30081` or HTTPS ingress | ✅ |
+| 22 | **Guided Installer** — single interactive script provisions the full stack with preflight, plan-preview, and post-install verification | `scripts/install.sh` | ✅ |
 
 ---
 
@@ -137,14 +140,21 @@ Every script is **idempotent** — safe to re-run and picks up where it left off
 
 ```bash
 sudo ./scripts/01-install-k3s.sh                 # k3s + Helm
-sudo ./scripts/02-install-cert-manager.sh        # TLS (K8ssandra prerequisite)
-sudo ./scripts/03-install-strimzi-operator.sh    # Kafka operator
-sudo ./scripts/04-install-k8ssandra-operator.sh  # Cassandra operator
+sudo ./scripts/02-install-cert-manager.sh        # cert-manager (Flink + ingress TLS)
+sudo ./scripts/03-install-strimzi-operator.sh    # Kafka (Strimzi) operator
 sudo ./scripts/05-install-flink-operator.sh      # Flink operator
 sudo ./scripts/06-install-monitoring.sh          # Prometheus + Grafana (optional)
-sudo ./scripts/07-deploy-cenotoo.sh              # Deploy the platform
-./scripts/08-deploy-api.sh                       # Build + deploy the REST API
+sudo ./scripts/07-deploy-cenotoo.sh              # Kafka, Cassandra, consumers, Mosquitto
+sudo ./scripts/24-deploy-postgres.sh             # PostgreSQL (metadata)
+sudo ./scripts/08-deploy-api.sh                  # REST API
+sudo ./scripts/10-deploy-dashboard.sh            # Web dashboard (optional)
+sudo ./scripts/12-deploy-mqtt-bridge.sh          # MQTT ingestion (optional)
+sudo ./scripts/22-deploy-coap-bridge.sh          # CoAP ingestion (optional)
+sudo ./scripts/11-deploy-flink-jobs.sh           # Flink SQL gateway + jobs (optional)
+sudo ./scripts/09-expose-api.sh                  # Public ingress + Let's Encrypt (optional)
 ```
+
+> The Cassandra cluster is now a plain Kubernetes `StatefulSet` — no K8ssandra operator is required.
 
 **Verify:**
 
@@ -255,18 +265,45 @@ coap-client -m post \
 
 An HTTP health probe is available at `http://<coap-bridge-ip>:8080/health`.
 
+### HTTP
+
+For server-to-server ingestion or any client that already speaks HTTP, post directly to the REST API. See the [REST API](#-rest-api) section for the full workflow.
+
+---
+
+## 🖥️ Web Dashboard
+
+The optional [cenotoo-dashboard](https://github.com/robotics-4-all/cenotoo-dashboard) is a React + Vite SPA that ships with Cenotoo. It provides:
+
+- Login + JWT session management
+- Organization, project, and collection browser
+- Device registry, API key generator (with scope selection), webhook rule editor
+- Live data view (SSE), historical query builder, statistics charts
+- Schema editor with live preview
+
+Deploy it with:
+
+```bash
+sudo ./scripts/10-deploy-dashboard.sh
+```
+
+The dashboard is exposed on **NodePort `30081`** by default, and can be put behind the same Traefik + Let's Encrypt ingress as the API via `scripts/09-expose-api.sh`.
+
+> The API base URL (`VITE_API_URL`) is baked into the SPA bundle at build time. If you switch from NodePort to ingress (or change the domain), re-run `10-deploy-dashboard.sh` to rebuild with the new URL.
+
 ---
 
 ## 🗄️ System Components
 
-| Component | Role | Technology | K8s Operator |
+| Component | Role | Technology | K8s Resource |
 |-----------|------|------------|:------------:|
-| Kafka | Message streaming backbone | Apache Kafka 3.x (KRaft) | Strimzi |
-| Cassandra | Time-series data persistence | Apache Cassandra 4.x | K8ssandra |
+| Kafka | Message streaming backbone | Apache Kafka 3.x (KRaft) | Strimzi operator |
+| Cassandra | Time-series data persistence | Apache Cassandra 4.x | StatefulSet |
 | PostgreSQL | Metadata — orgs, projects, users, API keys, rules | PostgreSQL 15 | StatefulSet |
-| Flink | Stream processing | Apache Flink 1.18 | Flink Operator |
+| Flink | Stream processing | Apache Flink 1.18 | Flink operator |
 | REST API | HTTP interface + auth | FastAPI + Pydantic | Deployment |
-| MQTT Bridge | MQTT → Kafka routing | Python + paho-mqtt | StatefulSet |
+| Web Dashboard | Browser UI | React + Vite + nginx | Deployment |
+| MQTT Bridge | MQTT → Kafka routing | Python + paho-mqtt | Deployment |
 | CoAP Bridge | CoAP → Kafka routing | Python + aiocoap | Deployment |
 | Consumer Bridge | Kafka → Cassandra writer | Python + confluent-kafka | Deployment |
 | Live Consumer | Kafka → SSE relay | Python + confluent-kafka | Deployment |
@@ -278,9 +315,9 @@ An HTTP health probe is available at `http://<coap-bridge-ip>:8080/health`.
 
 ## ⚙️ Configuration
 
-### Configuration
+### Secrets
 
-All credentials and cluster parameters are managed as Kubernetes Secrets and ConfigMaps under `deploy/k8s/01-secrets/`. Example files (`.yaml.example`) show the required structure — copy, fill in your values, and apply before deploying:
+All credentials and cluster parameters are managed as Kubernetes Secrets and ConfigMaps under `deploy/k8s/01-secrets/`. The guided installer generates them automatically; for manual deploys, copy the example files and fill in your values:
 
 ```bash
 cp deploy/k8s/01-secrets/api-secrets.yaml.example deploy/k8s/01-secrets/api-secrets.yaml
@@ -288,7 +325,15 @@ cp deploy/k8s/01-secrets/api-secrets.yaml.example deploy/k8s/01-secrets/api-secr
 kubectl apply -f deploy/k8s/01-secrets/
 ```
 
-See `scripts/07-deploy-cenotoo.sh` for the full deployment sequence including secret scaffolding.
+The installer writes the generated values to `.secrets/credentials.txt` (chmod 600).
+
+### Reset the admin user
+
+```bash
+sudo ./scripts/reset-admin.sh
+```
+
+Interactively rotates the dashboard / API admin username and password directly in PostgreSQL. Useful if you forget the auto-generated password or want to rename the bootstrap account.
 
 ### Naming Conventions
 
@@ -330,8 +375,10 @@ bash scripts/run-all-tests.sh
 Unit tests (no infrastructure required):
 
 ```bash
-pytest tests/ -v   # 493 tests — mocks Kafka and Cassandra
+pytest tests/ -v   # 94 tests — mocks Kafka, Cassandra, MQTT auth, CoAP
 ```
+
+The guided installer (`scripts/install.sh`) automatically runs the smoke test after install, and prompts whether to also run the full 13-suite integration battery.
 
 ---
 
@@ -341,18 +388,19 @@ pytest tests/ -v   # 493 tests — mocks Kafka and Cassandra
 |-------|------------|-------|
 | Message Streaming | Apache Kafka (KRaft) | No ZooKeeper; replication factor 2 |
 | Stream Processing | Apache Flink 1.18 | Exactly-once; K8s-native HA in production |
-| Time-series Storage | Apache Cassandra 4.x | `NetworkTopologyStrategy`, partition key `(day, key)` |
+| Time-series Storage | Apache Cassandra 4.x | Plain `StatefulSet`, `NetworkTopologyStrategy`, partition key `(day, key)` |
 | Metadata Storage | PostgreSQL 15 | Orgs, projects, users, API keys, device registry, rules |
 | REST API | FastAPI + Pydantic | Swagger UI, ReDoc, OAuth2, rate limiting |
-| MQTT Broker | Eclipse Mosquitto | mosquitto-go-auth HTTP backend via cenotoo-api |
+| Web Dashboard | React + Vite | Served by nginx, exposed via NodePort or Traefik ingress |
+| MQTT Broker | Eclipse Mosquitto | `mosquitto-go-auth` HTTP backend authenticates against `cenotoo-api` |
 | CoAP Bridge | aiocoap | Plaintext UDP only (DTLS experimental, not supported) |
-| Kafka Operator | Strimzi 0.45+ | KRaft, KafkaNodePools, SCRAM-SHA-512 ACLs |
-| Cassandra Operator | K8ssandra | Medusa backups, TLS, PasswordAuthenticator |
-| Flink Operator | Apache Flink K8s Operator 1.10+ | K8s-native HA, PVC-backed checkpoints |
+| Kafka Operator | Strimzi 0.51+ | KRaft, KafkaNodePools, SCRAM-SHA-512 ACLs |
+| Flink Operator | Apache Flink K8s Operator 1.14+ | K8s-native HA, PVC-backed checkpoints |
+| Ingress | Traefik (k3s built-in) + cert-manager | Let's Encrypt HTTP-01 for API + dashboard |
 | Observability | Prometheus + Grafana | JMX exporters for Kafka + Flink, alerting rules |
 | Tracing | OpenTelemetry | Opt-in via `OTLP_ENDPOINT` |
 | Rate Limiting | slowapi | Per-endpoint, configurable |
-| CI/CD | GitHub Actions | Lint → typecheck → 493 tests on push/PR |
+| CI/CD | GitHub Actions | Lint → typecheck → unit + integration tests on push/PR |
 
 ---
 
