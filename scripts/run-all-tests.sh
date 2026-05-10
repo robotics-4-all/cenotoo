@@ -1,33 +1,250 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-all-tests.sh — Run the full Cenotoo test suite in sequence
+# run-all-tests.sh — Cenotoo test suite runner (interactive or non-interactive)
 #
-# Executes every test script in order, streams live output, and prints a
-# consolidated pass/fail summary at the end. A suite is marked SKIP if its
-# script file does not exist.
+# Modes (auto-detected, override with flags):
+#   - Interactive   : pick suites via menu (default when run from a TTY)
+#   - --all         : run every suite (default for non-TTY, e.g. CI)
+#   - --only LIST   : run a comma-separated subset (e.g. --only "Smoke,MQTT")
+#   - --list        : print suite names and exit
 #
-# Credentials (override via env vars):
+# Credentials:
 #   CENOTOO_ADMIN_USERNAME   API admin username  (default: admin)
-#   CENOTOO_ADMIN_PASSWORD   API admin password  (required — no default)
+#   CENOTOO_ADMIN_PASSWORD   API admin password
+#                            Auto-discovered from .secrets/credentials.txt
+#                            if not exported. Required in some form.
 #
-# Usage:  CENOTOO_ADMIN_PASSWORD=<pass> ./scripts/run-all-tests.sh [NAMESPACE] [RELEASE]
+# Usage:
+#   ./scripts/run-all-tests.sh                       # interactive picker
+#   ./scripts/run-all-tests.sh --all                 # run everything
+#   ./scripts/run-all-tests.sh --only "Smoke,MQTT"   # run a subset
+#   ./scripts/run-all-tests.sh --list                # show suite names
+#   ./scripts/run-all-tests.sh [NAMESPACE] [RELEASE] # custom ns/release
 # =============================================================================
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NAMESPACE="${1:-cenotoo}"
-RELEASE="${2:-cenotoo}"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Source shared UI library if present (info/ok/warn/banner/dimtext).
+# Falls back to inline equivalents below so the script still works on older
+# checkouts where lib/ui.sh wasn't yet introduced.
+if [ -f "$SCRIPT_DIR/lib/ui.sh" ]; then
+    # shellcheck source=lib/ui.sh
+    source "$SCRIPT_DIR/lib/ui.sh"
+fi
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+NAMESPACE="cenotoo"
+RELEASE="cenotoo"
+MODE=""
+ONLY_LIST=""
+
+# ── Suite registry ──────────────────────────────────────────────────────────
+# Display name | script filename. Add new suites here only — both the picker
+# menu and the runner iterate this single list.
+ALL_SUITES=(
+    "Smoke|smoke-test.sh"
+    "Infrastructure|integration-test.sh"
+    "PostgreSQL|25-test-postgres.sh"
+    "MQTT|13-test-mqtt.sh"
+    "CoAP|23-test-coap.sh"
+    "SSE Streaming|14-test-sse-stream.sh"
+    "Device Management|15-test-device-management.sh"
+    "Schema Evolution|16-test-schema-evolution.sh"
+    "Collection Metrics|17-test-collection-metrics.sh"
+    "Data Export|18-test-data-export.sh"
+    "Bulk Import|19-test-bulk-import.sh"
+    "Webhooks|20-test-webhooks.sh"
+    "Statistics|21-test-statistics.sh"
+)
+
+# ── Arg parsing ──────────────────────────────────────────────────────────────
+usage() {
+    cat <<'USAGE'
+Usage: run-all-tests.sh [OPTIONS] [NAMESPACE] [RELEASE]
+
+Options:
+  --all                 Run every suite (no menu).
+  --only "A,B,C"        Run only the listed suites (comma-separated names).
+  --list                Print suite names and exit.
+  -h, --help            Show this help.
+
+Positional:
+  NAMESPACE             Kubernetes namespace (default: cenotoo)
+  RELEASE               Release name           (default: cenotoo)
+
+Credentials:
+  CENOTOO_ADMIN_USERNAME    Default: admin
+  CENOTOO_ADMIN_PASSWORD    Auto-discovered from .secrets/credentials.txt
+                            when not exported.
+USAGE
+}
+
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --all)    MODE="all"; shift ;;
+        --only)   MODE="only"; ONLY_LIST="${2:-}"; shift 2 ;;
+        --list)   MODE="list"; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --*)      echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+        *)        POSITIONAL+=("$1"); shift ;;
+    esac
+done
+[ "${#POSITIONAL[@]}" -ge 1 ] && NAMESPACE="${POSITIONAL[0]}"
+[ "${#POSITIONAL[@]}" -ge 2 ] && RELEASE="${POSITIONAL[1]}"
+
+# Auto-mode: TTY → interactive, no TTY → all.
+if [ -z "$MODE" ]; then
+    if [ -t 0 ] && [ -t 1 ]; then
+        MODE="interactive"
+    else
+        MODE="all"
+    fi
+fi
+
+# ── --list short-circuit ─────────────────────────────────────────────────────
+if [ "$MODE" = "list" ]; then
+    for entry in "${ALL_SUITES[@]}"; do
+        echo "${entry%%|*}"
+    done
+    exit 0
+fi
+
+# ── Fallback UI helpers (no-op when lib/ui.sh sourced above) ─────────────────
+if ! declare -F info >/dev/null 2>&1; then
+    BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'
+    RED=$'\033[1;31m'; GREEN=$'\033[1;32m'; YELLOW=$'\033[1;33m'
+    BLUE=$'\033[1;34m'; CYAN=$'\033[1;36m'
+    info()    { echo -e "  ${BLUE}▸${RESET} $*"; }
+    ok()      { echo -e "  ${GREEN}✓${RESET} $*"; }
+    warn()    { echo -e "  ${YELLOW}⚠${RESET} $*"; }
+    fail()    { echo -e "  ${RED}✗${RESET} $*" >&2; exit 1; }
+    dimtext() { echo -e "  ${DIM}$*${RESET}"; }
+    banner()  { echo; echo -e "  ${CYAN}${BOLD}╔══ $* ══╗${RESET}"; echo; }
+fi
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
-BOLD='\033[1m'
-DIM='\033[2m'
-RED='\033[1;31m'
-GREEN='\033[1;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
-RESET='\033[0m'
+# ── Banner ───────────────────────────────────────────────────────────────────
+banner "Cenotoo — Test Suite Runner"
+dimtext "Namespace : $NAMESPACE"
+dimtext "Release   : $RELEASE"
 
+# ── Credential auto-discovery ────────────────────────────────────────────────
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+
+if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
+    # Auto-discover from install.sh's generated credentials file. The runner
+    # is normally invoked right after install on the same host, so this saves
+    # users from having to re-export the password every session.
+    CRED_FILE="$PROJECT_DIR/.secrets/credentials.txt"
+    if [ -r "$CRED_FILE" ]; then
+        DISCOVERED="$(grep -E '^ADMIN_PASSWORD=' "$CRED_FILE" 2>/dev/null | head -1 | cut -d= -f2-)"
+        if [ -n "$DISCOVERED" ]; then
+            export CENOTOO_ADMIN_PASSWORD="$DISCOVERED"
+            ok "Discovered admin password from .secrets/credentials.txt"
+        fi
+    fi
+fi
+
+if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
+    warn "CENOTOO_ADMIN_PASSWORD is not set and could not be auto-discovered."
+    warn "Export it manually or place it in .secrets/credentials.txt:"
+    warn "  CENOTOO_ADMIN_PASSWORD=<password> $0"
+    fail "Cannot continue without admin credentials."
+fi
+
+dimtext "Admin user: $ADMIN_USERNAME"
+echo
+
+# ── Namespace preflight ─────────────────────────────────────────────────────
+if ! kubectl get ns "$NAMESPACE" &>/dev/null; then
+    fail "Namespace '$NAMESPACE' not found"
+fi
+
+# ── Suite selection ─────────────────────────────────────────────────────────
+SELECTED=()
+
+select_all() {
+    SELECTED=("${ALL_SUITES[@]}")
+}
+
+select_by_only() {
+    # Comma-separated names → exact match against ALL_SUITES.
+    local IFS=','
+    local wanted_csv="$1"
+    read -ra wanted <<< "$wanted_csv"
+    for name in "${wanted[@]}"; do
+        # Trim whitespace
+        name="${name#"${name%%[![:space:]]*}"}"
+        name="${name%"${name##*[![:space:]]}"}"
+        local matched=0
+        for entry in "${ALL_SUITES[@]}"; do
+            if [ "${entry%%|*}" = "$name" ]; then
+                SELECTED+=("$entry")
+                matched=1
+                break
+            fi
+        done
+        [ "$matched" -eq 0 ] && fail "Unknown suite: '$name' (use --list to see valid names)"
+    done
+}
+
+select_interactive() {
+    # Multi-select picker. User enters indices (e.g. "1 3 5"), "a" for all,
+    # or empty/Enter to default to all suites.
+    echo
+    info "Select suites to run (space-separated indices, 'a' for all, Enter for all):"
+    echo
+    local i=1
+    for entry in "${ALL_SUITES[@]}"; do
+        local name="${entry%%|*}"
+        printf '    %2d) %s\n' "$i" "$name"
+        i=$((i + 1))
+    done
+    echo
+    local choice
+    read -r -p "  Choice: " choice
+    choice="${choice#"${choice%%[![:space:]]*}"}"
+    choice="${choice%"${choice##*[![:space:]]}"}"
+
+    if [ -z "$choice" ] || [ "$choice" = "a" ] || [ "$choice" = "A" ]; then
+        select_all
+        return
+    fi
+
+    local total="${#ALL_SUITES[@]}"
+    for tok in $choice; do
+        if ! [[ "$tok" =~ ^[0-9]+$ ]]; then
+            fail "Invalid input '$tok' (must be a number, 'a', or empty)"
+        fi
+        if [ "$tok" -lt 1 ] || [ "$tok" -gt "$total" ]; then
+            fail "Index out of range: $tok (valid 1..$total)"
+        fi
+        SELECTED+=("${ALL_SUITES[$((tok - 1))]}")
+    done
+
+    [ "${#SELECTED[@]}" -eq 0 ] && fail "No suites selected"
+}
+
+case "$MODE" in
+    all)         select_all ;;
+    only)        [ -z "$ONLY_LIST" ] && fail "--only requires a comma-separated list"
+                 select_by_only "$ONLY_LIST" ;;
+    interactive) select_interactive ;;
+    *)           fail "Unknown mode: $MODE" ;;
+esac
+
+echo
+info "Will run ${#SELECTED[@]} suite(s):"
+for entry in "${SELECTED[@]}"; do
+    dimtext "  • ${entry%%|*}"
+done
+echo
+
+# ── Execution ───────────────────────────────────────────────────────────────
 SUITE_NAMES=()
 SUITE_STATUS=()
 SUITE_TIMES=()
@@ -36,7 +253,15 @@ TOTAL_FAILED=0
 TOTAL_SKIPPED=0
 START_TIME=$(date +%s)
 
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+# ANSI codes used inside run_suite (defined here so they exist whether or not
+# lib/ui.sh was sourced — ui.sh keeps some of these as locals in functions).
+[ -z "${BOLD:-}" ]   && BOLD=$'\033[1m'
+[ -z "${DIM:-}" ]    && DIM=$'\033[2m'
+[ -z "${RESET:-}" ]  && RESET=$'\033[0m'
+[ -z "${RED:-}" ]    && RED=$'\033[1;31m'
+[ -z "${GREEN:-}" ]  && GREEN=$'\033[1;32m'
+[ -z "${YELLOW:-}" ] && YELLOW=$'\033[1;33m'
+[ -z "${CYAN:-}" ]   && CYAN=$'\033[1;36m'
 
 fmttime() {
     local s="$1"
@@ -58,7 +283,8 @@ run_suite() {
     fi
 
     printf '\n%b╔═  %s  %b\n' "$CYAN$BOLD" "$name" "$RESET"
-    echo -e "${DIM}    $(basename "$script") — namespace=$NAMESPACE release=$RELEASE${RESET}"
+    printf '%b    %s — namespace=%s release=%s%b\n' \
+        "$DIM" "$(basename "$script")" "$NAMESPACE" "$RELEASE" "$RESET"
     echo ""
 
     local t0 t1 elapsed exit_code
@@ -88,42 +314,11 @@ run_suite() {
     fi
 }
 
-# ── Banner ───────────────────────────────────────────────────────────────────
-echo ""
-echo -e "${CYAN}${BOLD}  ╔════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}  ║     Cenotoo — Full Test Suite Runner      ║${RESET}"
-echo -e "${CYAN}${BOLD}  ╚════════════════════════════════════════════╝${RESET}"
-echo ""
-echo -e "  ${DIM}Namespace : $NAMESPACE${RESET}"
-echo -e "  ${DIM}Release   : $RELEASE${RESET}"
-echo -e "  ${DIM}Admin user: $ADMIN_USERNAME${RESET}"
-
-# ── Preflight ────────────────────────────────────────────────────────────────
-if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
-    echo -e "\n  ${RED}✗${RESET}  CENOTOO_ADMIN_PASSWORD is not set"
-    printf '\n\033[1;31mRun: CENOTOO_ADMIN_PASSWORD=<pass> %s\033[0m\n' "$0"
-    exit 1
-fi
-
-if ! kubectl get ns "$NAMESPACE" &>/dev/null; then
-    echo -e "\n  ${RED}✗${RESET}  Namespace '$NAMESPACE' not found"
-    exit 1
-fi
-
-# ── Suite Execution ───────────────────────────────────────────────────────────
-run_suite "Smoke"              "$SCRIPT_DIR/smoke-test.sh"
-run_suite "Infrastructure"     "$SCRIPT_DIR/integration-test.sh"
-run_suite "PostgreSQL"         "$SCRIPT_DIR/25-test-postgres.sh"
-run_suite "MQTT"               "$SCRIPT_DIR/13-test-mqtt.sh"
-run_suite "CoAP"               "$SCRIPT_DIR/23-test-coap.sh"
-run_suite "SSE Streaming"      "$SCRIPT_DIR/14-test-sse-stream.sh"
-run_suite "Device Management"  "$SCRIPT_DIR/15-test-device-management.sh"
-run_suite "Schema Evolution"   "$SCRIPT_DIR/16-test-schema-evolution.sh"
-run_suite "Collection Metrics" "$SCRIPT_DIR/17-test-collection-metrics.sh"
-run_suite "Data Export"        "$SCRIPT_DIR/18-test-data-export.sh"
-run_suite "Bulk Import"        "$SCRIPT_DIR/19-test-bulk-import.sh"
-run_suite "Webhooks"           "$SCRIPT_DIR/20-test-webhooks.sh"
-run_suite "Statistics"         "$SCRIPT_DIR/21-test-statistics.sh"
+for entry in "${SELECTED[@]}"; do
+    name="${entry%%|*}"
+    script="$SCRIPT_DIR/${entry##*|}"
+    run_suite "$name" "$script"
+done
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 END_TIME=$(date +%s)
@@ -154,12 +349,12 @@ printf '  '
 printf "${GREEN}${BOLD}%d passed${RESET}" "$TOTAL_PASSED"
 [ "$TOTAL_FAILED"  -gt 0 ] && printf ", ${RED}${BOLD}%d failed${RESET}"  "$TOTAL_FAILED"
 [ "$TOTAL_SKIPPED" -gt 0 ] && printf ", ${YELLOW}%d skipped${RESET}" "$TOTAL_SKIPPED"
-printf "  ($(fmttime "$TOTAL_ELAPSED") total)\n\n"
+printf "  (%s total)\n\n" "$(fmttime "$TOTAL_ELAPSED")"
 
 if [ "$TOTAL_FAILED" -gt 0 ]; then
-    echo -e "${RED}${BOLD}FULL TEST RUN FAILED${RESET}"
+    echo -e "${RED}${BOLD}TEST RUN FAILED${RESET}"
     exit 1
 else
-    echo -e "${GREEN}${BOLD}ALL TESTS PASSED${RESET}"
+    echo -e "${GREEN}${BOLD}ALL SELECTED TESTS PASSED${RESET}"
     exit 0
 fi
