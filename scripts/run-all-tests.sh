@@ -135,19 +135,30 @@ dimtext "Release   : $RELEASE"
 # ── Credential auto-discovery ────────────────────────────────────────────────
 ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 
-if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
-    # Auto-discover from install.sh's generated credentials file. The runner
-    # is normally invoked right after install on the same host, so this saves
-    # users from having to re-export the password every session.
-    CRED_FILE="$PROJECT_DIR/.secrets/credentials.txt"
-    if [ -r "$CRED_FILE" ]; then
-        DISCOVERED="$(grep -E '^ADMIN_PASSWORD=' "$CRED_FILE" 2>/dev/null | head -1 | cut -d= -f2-)"
-        if [ -n "$DISCOVERED" ]; then
-            export CENOTOO_ADMIN_PASSWORD="$DISCOVERED"
+CRED_FILE="$PROJECT_DIR/.secrets/credentials.txt"
+
+# Auto-discover username and password from install.sh's generated credentials
+# file. The runner is normally invoked right after install on the same host,
+# so this saves users from having to re-export creds every session. Username
+# discovery prevents the common case where install/init defaulted to a
+# non-"admin" name (e.g. "cenotoo") and breaks every API-based test suite.
+if [ -r "$CRED_FILE" ]; then
+    if [ -z "${CENOTOO_ADMIN_USERNAME:-}" ]; then
+        D_USER="$(grep -E '^ADMIN_USERNAME=' "$CRED_FILE" 2>/dev/null | head -1 | cut -d= -f2-)"
+        if [ -n "$D_USER" ]; then
+            export CENOTOO_ADMIN_USERNAME="$D_USER"
+            ok "Discovered admin username from .secrets/credentials.txt: $D_USER"
+        fi
+    fi
+    if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
+        D_PASS="$(grep -E '^ADMIN_PASSWORD=' "$CRED_FILE" 2>/dev/null | head -1 | cut -d= -f2-)"
+        if [ -n "$D_PASS" ]; then
+            export CENOTOO_ADMIN_PASSWORD="$D_PASS"
             ok "Discovered admin password from .secrets/credentials.txt"
         fi
     fi
 fi
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
 
 if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
     warn "CENOTOO_ADMIN_PASSWORD is not set and could not be auto-discovered."
