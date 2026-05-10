@@ -150,6 +150,22 @@ ok "SQL Gateway sidecar is ready"
 # ── Step 4: Cassandra schema migration ───────────────────────────────────────
 step "4/5" "Migrate Cassandra schema (flink_jobs table)"
 
+# 07-deploy-cenotoo.sh's align_cassandra_password() rotates the Cassandra
+# superuser password to the random value in cenotoo-cassandra-superuser.
+# The script-level defaults (cassandra/cassandra) are stale once that has run,
+# so pull the live credentials from the secret before talking to cqlsh.
+if kubectl get secret cenotoo-cassandra-superuser -n "$NAMESPACE" >/dev/null 2>&1; then
+    SECRET_USER=$(kubectl get secret cenotoo-cassandra-superuser -n "$NAMESPACE" \
+        -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    SECRET_PASS=$(kubectl get secret cenotoo-cassandra-superuser -n "$NAMESPACE" \
+        -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+    if [ -n "$SECRET_USER" ] && [ -n "$SECRET_PASS" ]; then
+        CASSANDRA_USER="$SECRET_USER"
+        CASSANDRA_PASS="$SECRET_PASS"
+        info "Using Cassandra credentials from cenotoo-cassandra-superuser secret"
+    fi
+fi
+
 info "Applying flink_jobs table (IF NOT EXISTS) ..."
 FLINK_JOBS_DDL="CREATE TABLE IF NOT EXISTS metadata.flink_jobs (id UUID PRIMARY KEY, collection_id UUID, project_id UUID, session_handle TEXT, operation_handle TEXT, job_type TEXT, config TEXT, sink_topic TEXT, status TEXT, created_at TIMESTAMP);"
 run_cql "$FLINK_JOBS_DDL"
