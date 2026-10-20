@@ -416,8 +416,16 @@ fi
 
 # ---- Secrets --------------------------------------------------------------
 hr
-info "→ Configure secrets (non-interactive — values from .install.conf)"
+info "\u2192 Configure secrets (non-interactive \u2014 values from .install.conf)"
 hr
+# Guard: regenerating secrets while Cassandra PVC holds an old system_auth
+# password creates a 3-way split (file vs k8s secret vs DB). If a Cassandra
+# data PVC already exists, the DB password survives and must be aligned via
+# ALTER ROLE in 07-deploy-cenotoo.sh - never by writing a new random secret.
+if kubectl get pvc -n cenotoo data-cenotoo-cassandra-0 &>/dev/null; then
+    warn "Existing Cassandra data PVC found - reusing password from .install.conf (do not regenerate)."
+    info "If you want a fresh password, delete the PVC first: kubectl -n cenotoo delete pvc data-cenotoo-cassandra-0"
+fi
 export CENOTOO_JWT_SECRET="$JWT_SECRET"
 export CENOTOO_API_KEY_SECRET="$API_KEY_SECRET"
 export CENOTOO_CASSANDRA_PASSWORD="$CASSANDRA_PASSWORD"

@@ -62,10 +62,17 @@ wait_for_cassandra() {
 #
 # This function is idempotent:
 #   - if login with the secret password already works  -> no-op
-#   - else login with the default cassandra/cassandra and ALTER ROLE
-#     to the secret value, then re-verify
-# CQL is piped via stdin to avoid shell-quoting issues with random passwords
-# that may contain $, ', ", \, etc.
+#   - else wait for the default login to become ready (auth loads async
+#     after pod Ready), then ALTER ROLE to the secret value with retries,
+#     then re-verify.
+# CQL string literals escape single-quote by doubling (''). Identifiers escape
+# double-quote by doubling. Helpers below handle manual passwords with ', $, \.
+cql_escape() {
+    printf '%s' "$1" | sed "s/'/''/g"
+}
+cql_ident_escape() {
+    printf '%s' "$1" | sed 's/"/""/g'
+}
 align_cassandra_password() {
     local ns="$1" pod="cenotoo-cassandra-0"
     local secret_user secret_pass
@@ -89,11 +96,35 @@ align_cassandra_password() {
         return 0
     fi
 
-    warn "Cassandra password does not match secret — aligning via ALTER ROLE"
-    if ! printf "ALTER ROLE \"%s\" WITH PASSWORD = '%s';\n" "$secret_user" "$secret_pass" \
+    warn "Cassandra password does not match secret - aligning via ALTER ROLE"
+    esc_user=$(cql_ident_escape "$secret_user")
+    esc_pass=$(cql_escape "$secret_pass")
+    info "Waiting for Cassandra default login to become ready ..."
+    elapsed=0
+    until printf 'SELECT release_version FROM system.local;\n' \
         | kubectl exec -i -n "$ns" "$pod" -c cassandra -- \
-            cqlsh -u cassandra -p cassandra 2>&1 | tail -3; then
-        fail "Failed to ALTER ROLE on Cassandra (could not log in with default cassandra/cassandra either)"
+            cqlsh -u cassandra -p cassandra &>/dev/null; do
+        if [ "$elapsed" -ge 60 ]; then
+            fail "Failed to ALTER ROLE: default cassandra/cassandra login never became ready; DB may hold a third password - see docs/k3s-setup.md troubleshooting)"
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    attempt=0
+    altered=false
+    while [ "$attempt" -lt 3 ]; do
+        attempt=$((attempt + 1))
+        if printf 'ALTER ROLE "%s" WITH PASSWORD = '\''%s'\'';\n' "$esc_user" "$esc_pass" \
+            | kubectl exec -i -n "$ns" "$pod" -c cassandra -- \
+                cqlsh -u cassandra -p cassandra 2>&1 | tail -3; then
+            altered=true
+            break
+        fi
+        warn "ALTER ROLE attempt $attempt/3 failed - retrying in 5s"
+        sleep 5
+    done
+    if [ "$altered" != "true" ]; then
+        fail "Failed to ALTER ROLE on Cassandra after 3 attempts"
     fi
 
     # Verify the change took effect — Cassandra is eventually-consistent for auth changes

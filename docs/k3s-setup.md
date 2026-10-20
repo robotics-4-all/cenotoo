@@ -282,6 +282,20 @@ The consumer is not authenticating with SASL, or the KafkaUser secret does not e
 
 Do not use process substitution `<(docker save ...)` with sudo. Use a pipe instead: `docker save image:tag | sudo k3s ctr images import -`.
 
+**Cassandra password mismatch (Bad credentials for both secret and default)**
+
+Three stores must agree: secret file `deploy/k8s/01-secrets/cassandra-superuser.yaml`, k8s
+`secret/cenotoo-cassandra-superuser`, and DB `system_auth.roles`. Symptoms: `align_cassandra_password`
+warns then `AuthenticationFailed ... Bad credentials`. Causes: (a) re-ran `install.sh` without
+`--resume` and regenerated a new random password while the old PVC survived; (b) default login
+tried before `PasswordAuthenticator` finished loading (transient).
+
+Fix (no data to keep): delete STS+PVC+host-path, pin one secret, re-run `07-deploy-cenotoo.sh`.
+Fix (keep data / default login works): `ALTER ROLE "cassandra" WITH PASSWORD='<secret>'` via
+`cqlsh -u cassandra -p cassandra`, wait 10s, verify secret login, then `install.sh --resume`.
+Never just re-run `configure-secrets.sh` - that widens the split. Secret files are `600 root` -
+use `sudo cat`.
+
 ## Uninstall
 
 ```bash
