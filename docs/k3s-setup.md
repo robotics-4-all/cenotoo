@@ -201,6 +201,18 @@ sudo ./scripts/integration-test.sh
 
 All tests should report PASS.
 
+Run the full 13-suite battery with `sudo` (credentials file is `600 root`, auto-discovery
+needs read access; no manual `CENOTOO_ADMIN_*` exports needed):
+
+```bash
+sudo bash scripts/run-all-tests.sh --all
+```
+
+Notes: the runner paces suites ~7s apart because the API rate-limits `POST /token` to
+10/min per source IP (all port-forwarded suites share `127.0.0.1`); a 429 storm clears on
+`kubectl -n cenotoo rollout restart deployment/cenotoo-api` (in-memory buckets).
+Smoke-test pod counts exclude `Terminating` pods (old ReplicaSets after rollout restarts).
+
 ## Step 10: Install Monitoring (Optional)
 
 ```bash

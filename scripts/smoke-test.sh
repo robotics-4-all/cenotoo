@@ -44,22 +44,20 @@ fi
 # ---------------------------------------------------------------------------
 header "Pod Health"
 # ---------------------------------------------------------------------------
-total_pods=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l)
+pod_lines=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -v Terminating || true)
+total_pods=$(printf '%s' "$pod_lines" | grep -c . || true)
 if [ "$total_pods" -eq 0 ]; then
     fail "No pods found in $NAMESPACE"
 else
-    running=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -c 'Running' || true)
-    pending=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -c 'Pending' || true)
-    crash=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null | grep -cE 'CrashLoopBackOff|Error|ImagePullBackOff' || true)
-
+    running=$(printf '%s' "$pod_lines" | grep -c 'Running' || true)
+    pending=$(printf '%s' "$pod_lines" | grep -c 'Pending' || true)
+    crash=$(printf '%s' "$pod_lines" | grep -cE 'CrashLoopBackOff|Error|ImagePullBackOff' || true)
     if [ "$running" -eq "$total_pods" ]; then
         pass "All $total_pods pods are Running"
     else
         fail "$running/$total_pods pods Running ($pending pending, $crash erroring)"
     fi
-
-    not_ready=$(kubectl get pods -n "$NAMESPACE" --no-headers 2>/dev/null \
-        | awk '{split($2,a,"/"); if(a[1]!=a[2]) print $1}' || true)
+    not_ready=$(printf '%s' "$pod_lines" | awk -F'[/ ]' '{if($2!=$3) print $1}' || true)
     if [ -z "$not_ready" ]; then
         pass "All containers are Ready"
     else

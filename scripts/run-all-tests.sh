@@ -326,7 +326,17 @@ run_suite() {
     fi
 }
 
+# The API rate-limits POST /token to 10/min per source IP (slowapi, in-memory).
+# Every suite port-forwards from 127.0.0.1, so back-to-back logins 429.
+# Pacing 7s between suites keeps us under the limit; a 429 storm clears on
+# API rollout restart (buckets are per-process memory).
+first_suite=true
 for entry in "${SELECTED[@]}"; do
+    if [ "$first_suite" = "true" ]; then
+        first_suite=false
+    else
+        sleep 7
+    fi
     name="${entry%%|*}"
     script="$SCRIPT_DIR/${entry##*|}"
     run_suite "$name" "$script"
