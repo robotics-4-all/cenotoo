@@ -156,8 +156,8 @@ def test_flink_pipeline_avg(admin_client):
                 row = next(
                     item for item in results["items"] if item.get("record_count") == len(PIPE_TEMPS)
                 )
-                # Sink column is {metric}_{attribute}, e.g. avg_temperature.
-                value_key = f"{JOB_BODY['metric']}_{JOB_BODY['attribute']}"
+                # Results endpoint normalizes the aggregation into `value`.
+                value_key = "value"
                 assert row[value_key] is not None
                 assert abs(row[value_key] - EXPECTED_AVG) < 1e-6
             finally:
