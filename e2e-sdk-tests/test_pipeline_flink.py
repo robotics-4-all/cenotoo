@@ -4,14 +4,11 @@ Flink aggregation, observe, cleanup.
 The SDK has no Flink resource, so job lifecycle calls go through the SDK's
 authenticated request() as raw REST (same auth, no workaround — there is
 simply no SDK model for jobs). Aggregation chosen: avg(temperature) over a
-1-minute tumbling window. Flink windows by arrival time (event_time is
-processing time at Flink, watermark -5s), so one back-to-back burst lands in
-a single window and the expected average is exact. Residual risk: a burst
-straddling a minute boundary splits across two windows — the burst is a
+1-minute tumbling window. Guided windows run on proc_time (PROCTIME()), so
+they fire on wall clock with no watermark dependency; one back-to-back burst
+lands in a single window and the expected average is exact. Residual risk: a
+burst straddling a minute boundary splits across two windows — the burst is a
 single produce call (milliseconds), so this is negligible.
-Requires the server's idle-timeout SET statement
-(table.exec.source.idle-timeout): without it the source watermark freezes
-after a finite burst and the window never fires.
 """
 
 import contextlib
@@ -161,12 +158,14 @@ def test_flink_pipeline_avg(admin_client):
                 assert row[value_key] is not None
                 assert abs(row[value_key] - EXPECTED_AVG) < 1e-6
             finally:
-                # 7a. Stop + delete the job (DELETE cancels the gateway session)
-                with contextlib.suppress(Exception):
-                    admin_client.request(
-                        "DELETE",
-                        _jobs_path(project.project_id, collection.collection_id, f"/{job_id}"),
-                    )
+                # 7a. Stop + delete the job (DELETE cancels the gateway session),
+                # then PROVE it is gone: re-GET must 404.
+                from nostradamus_ioto_sdk.exceptions import ResourceNotFoundError
+
+                job_path = _jobs_path(project.project_id, collection.collection_id, f"/{job_id}")
+                admin_client.request("DELETE", job_path)
+                with pytest.raises(ResourceNotFoundError):
+                    admin_client.request("GET", job_path)
         finally:
             # 7b. Collection, then project (keys die with the project)
             with contextlib.suppress(Exception):
