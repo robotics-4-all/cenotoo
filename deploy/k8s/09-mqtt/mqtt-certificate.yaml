@@ -1,0 +1,21 @@
+# cert-manager Certificate for MQTT TLS (Traefik-terminated, Option 2).
+# DNS name must resolve to the k3s node(s). Replace the placeholder host
+# before applying, mirroring scripts/09-expose-api.sh behaviour for the API.
+# Requires the cenotoo-letsencrypt ClusterIssuer (created by 09-expose-api.sh)
+# and port 80 reachable for the HTTP-01 challenge.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cenotoo-mqtt-tls
+  namespace: cenotoo
+  labels:
+    app.kubernetes.io/component: mqtt-broker
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  secretName: cenotoo-mqtt-tls
+  issuerRef:
+    name: cenotoo-letsencrypt
+    kind: ClusterIssuer
+  commonName: mqtt.cenotoo.issel-portal.com
+  dnsNames:
+    - mqtt.cenotoo.issel-portal.com

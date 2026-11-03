@@ -110,10 +110,10 @@ def main() -> None:
         client.username_pw_set(username, password)
         print(f"[MQTT] Authenticating as '{username}'")
 
-    # Optional TLS:
-    # if os.getenv("MQTT_USE_TLS", "false").lower() in ("1", "true"):
-    #     import ssl
-    #     client.tls_set(ca_certs=os.getenv("MQTT_CA_CERT"), tls_version=ssl.PROTOCOL_TLSv1_2)
+    if os.getenv("MQTT_USE_TLS", "false").lower() in ("1", "true", "yes"):
+        import ssl
+
+        client.tls_set(ca_certs=os.getenv("MQTT_CA_CERT") or None, tls_version=ssl.PROTOCOL_TLSv1_2)
 
     received = 0
 

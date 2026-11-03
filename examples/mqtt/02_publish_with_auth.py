@@ -164,6 +164,10 @@ def mqtt_publish(username: str, password: str, topic: str, payload: dict) -> Non
     client.on_publish = on_publish
     client.on_disconnect = on_disconnect
     client.username_pw_set(username, password)
+    if os.getenv("MQTT_USE_TLS", "false").lower() in ("1", "true", "yes"):
+        import ssl
+
+        client.tls_set(ca_certs=os.getenv("MQTT_CA_CERT") or None, tls_version=ssl.PROTOCOL_TLSv1_2)
 
     print(f"[MQTT] Connecting to {MQTT_HOST}:{MQTT_PORT} as {username} ...")
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)

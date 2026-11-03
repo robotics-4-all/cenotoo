@@ -119,17 +119,21 @@ echo "    Expected: \"Skipping invalid MQTT topic (expected exactly 3 segments)\
 echo ""
 
 # ---------------------------------------------------------------------------
-# 7. TLS publish (if broker exposes 8883 with TLS — uncomment and configure)
+# 7. TLS publish via Traefik mqtts entrypoint (port 8883)
+#    Requires MQTT_USE_TLS=1 and MQTT_CA_CERT set (or system CA for LE).
 # ---------------------------------------------------------------------------
-# echo "--- 7. TLS publish (port 8883) ---"
-# mosquitto_pub -h "$BROKER" -p 8883 \
-#   --cafile /path/to/ca.crt \
-#   -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
-#   -t "$TOPIC" \
-#   -m '{"secure": true, "temp": 21.0}' \
-#   -q 1
-# echo "✓ Published over TLS"
-# echo ""
+if [[ "${MQTT_USE_TLS:-0}" == "1" ]]; then
+  echo "--- 7. TLS publish (port 8883) ---"
+  TLS_ARGS=()
+  if [[ -n "${MQTT_CA_CERT:-}" ]]; then TLS_ARGS=(--cafile "$MQTT_CA_CERT"); fi
+  mosquitto_pub -h "$BROKER" -p "${MQTT_TLS_PORT:-8883}" "${TLS_ARGS[@]}" \
+    -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
+    -t "$TOPIC" \
+    -m '{"secure": true, "temp": 21.0}' \
+    -q 1
+  echo "✓ Published over TLS"
+  echo ""
+fi""
 
 echo "All shell examples done."
 echo ""
