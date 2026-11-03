@@ -19,6 +19,7 @@ MQTT_AUTH_IMAGE="mqtt-auth:latest"
 MQTT_BRIDGE_IMAGE="mqtt-bridge:latest"
 COAP_BRIDGE_IMAGE="coap-bridge:latest"
 API_IMAGE="cenotoo-api:latest"
+SDK_E2E_IMAGE="sdk-e2e-tests:latest"
 
 CENOTOO_API_DIR="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null && pwd || echo "")}"
 
@@ -64,6 +65,7 @@ build_and_load "$PROJECT_DIR/kafka-live-consumer" "$LIVE_CONSUMER_IMAGE"
 build_and_load "$PROJECT_DIR/mqtt-auth" "$MQTT_AUTH_IMAGE"
 build_and_load "$PROJECT_DIR/mqtt-bridge" "$MQTT_BRIDGE_IMAGE"
 build_and_load "$PROJECT_DIR/coap-bridge" "$COAP_BRIDGE_IMAGE"
+build_and_load "$PROJECT_DIR/e2e-sdk-tests" "$SDK_E2E_IMAGE"
 
 if [ -n "$CENOTOO_API_DIR" ] && [ -d "$CENOTOO_API_DIR" ]; then
     build_and_load "$CENOTOO_API_DIR" "$API_IMAGE"
@@ -74,7 +76,7 @@ fi
 
 echo ""
 ok "All images built and imported into k3s containerd"
-info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|coap-bridge|cenotoo-api'"
+info "Verify: sudo k3s ctr images list | grep -E 'custom-flink|kafka-cassandra|kafka-live|mqtt-auth|mqtt-bridge|coap-bridge|cenotoo-api|sdk-e2e'"
 
 if kubectl get namespace cenotoo &>/dev/null; then
     info "Applying updated deployment manifests ..."

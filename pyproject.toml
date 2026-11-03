@@ -21,6 +21,7 @@ target-version = "py38"
 line-length = 100
 
 [tool.ruff.lint]
+per-file-ignores = { "examples/**/*.py" = ["E501"] }
 select = [
     "E",
     "F",
@@ -51,4 +52,5 @@ testpaths = ["tests"]
 markers = [
     "unit: unit tests",
     "integration: integration tests (require running services)",
+    "e2e: SDK e2e tests in e2e-sdk-tests/ (require live Cenotoo API)",
 ]

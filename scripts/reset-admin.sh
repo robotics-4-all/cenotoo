@@ -238,3 +238,45 @@ dimtext "  curl -X POST https://api.<your-domain>/auth/login \\"
 dimtext "       -H 'Content-Type: application/json' \\"
 dimtext "       -d '{\"username\":\"${ADMIN_USER}\",\"password\":\"...\"}'"
 echo ""
+
+# ---------------------------------------------------------------------------
+# Sync install config + credentials file so run-all-tests.sh auto-discovery
+# keeps working without manual exports. Without this, .install.conf /
+# .secrets/credentials.txt drift from Postgres (e.g. admin -> nostradamus)
+# and every API suite 401s.
+# ---------------------------------------------------------------------------
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONF_FILE="$PROJECT_DIR/.install.conf"
+CRED_FILE="$PROJECT_DIR/.secrets/credentials.txt"
+if [ -f "$CONF_FILE" ] && [ -w "$CONF_FILE" ]; then
+    if grep -qE '^ADMIN_USERNAME=' "$CONF_FILE" 2>/dev/null; then
+        sed -i "s/^ADMIN_USERNAME=.*/ADMIN_USERNAME=\"$ADMIN_USER\"/" "$CONF_FILE"
+    else
+        printf '%s\n' "ADMIN_USERNAME=\"$ADMIN_USER\"" >> "$CONF_FILE"
+    fi
+    if grep -qE '^ADMIN_PASSWORD=' "$CONF_FILE" 2>/dev/null; then
+        sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=\"$ADMIN_PASS\"/" "$CONF_FILE"
+    else
+        printf '%s\n' "ADMIN_PASSWORD=\"$ADMIN_PASS\"" >> "$CONF_FILE"
+    fi
+    chmod 600 "$CONF_FILE" 2>/dev/null || true
+    dimtext "Synced $CONF_FILE"
+fi
+if [ -f "$CRED_FILE" ] && [ -w "$CRED_FILE" ]; then
+    for key in ADMIN_USERNAME CENOTOO_ADMIN_USERNAME; do
+        if grep -qE "^$key=" "$CRED_FILE" 2>/dev/null; then
+            sed -i "s/^$key=.*/$key=$ADMIN_USER/" "$CRED_FILE"
+        else
+            printf '%s\n' "$key=$ADMIN_USER" >> "$CRED_FILE"
+        fi
+    done
+    for key in ADMIN_PASSWORD CENOTOO_ADMIN_PASSWORD; do
+        if grep -qE "^$key=" "$CRED_FILE" 2>/dev/null; then
+            sed -i "s/^$key=.*/$key=$ADMIN_PASS/" "$CRED_FILE"
+        else
+            printf '%s\n' "$key=$ADMIN_PASS" >> "$CRED_FILE"
+        fi
+    done
+    chmod 600 "$CRED_FILE" 2>/dev/null || true
+    dimtext "Synced $CRED_FILE"
+fi

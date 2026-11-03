@@ -201,6 +201,18 @@ sudo ./scripts/integration-test.sh
 
 All tests should report PASS.
 
+Run the full 13-suite battery with `sudo` (credentials file is `600 root`, auto-discovery
+needs read access; no manual `CENOTOO_ADMIN_*` exports needed):
+
+```bash
+sudo bash scripts/run-all-tests.sh --all
+```
+
+Notes: the runner paces suites ~7s apart because the API rate-limits `POST /token` to
+10/min per source IP (all port-forwarded suites share `127.0.0.1`); a 429 storm clears on
+`kubectl -n cenotoo rollout restart deployment/cenotoo-api` (in-memory buckets).
+Smoke-test pod counts exclude `Terminating` pods (old ReplicaSets after rollout restarts).
+
 ## Step 10: Install Monitoring (Optional)
 
 ```bash
@@ -281,6 +293,20 @@ The consumer is not authenticating with SASL, or the KafkaUser secret does not e
 **k3s ctr image import fails with "no such file or directory"**
 
 Do not use process substitution `<(docker save ...)` with sudo. Use a pipe instead: `docker save image:tag | sudo k3s ctr images import -`.
+
+**Cassandra password mismatch (Bad credentials for both secret and default)**
+
+Three stores must agree: secret file `deploy/k8s/01-secrets/cassandra-superuser.yaml`, k8s
+`secret/cenotoo-cassandra-superuser`, and DB `system_auth.roles`. Symptoms: `align_cassandra_password`
+warns then `AuthenticationFailed ... Bad credentials`. Causes: (a) re-ran `install.sh` without
+`--resume` and regenerated a new random password while the old PVC survived; (b) default login
+tried before `PasswordAuthenticator` finished loading (transient).
+
+Fix (no data to keep): delete STS+PVC+host-path, pin one secret, re-run `07-deploy-cenotoo.sh`.
+Fix (keep data / default login works): `ALTER ROLE "cassandra" WITH PASSWORD='<secret>'` via
+`cqlsh -u cassandra -p cassandra`, wait 10s, verify secret login, then `install.sh --resume`.
+Never just re-run `configure-secrets.sh` - that widens the split. Secret files are `600 root` -
+use `sudo cat`.
 
 ## Uninstall
 

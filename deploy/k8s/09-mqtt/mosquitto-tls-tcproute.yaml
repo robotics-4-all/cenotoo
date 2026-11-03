@@ -1,0 +1,24 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: cenotoo-mosquitto-tls
+  namespace: cenotoo
+  labels:
+    app.kubernetes.io/component: mqtt-broker
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  entryPoints:
+    - mqtts
+  routes:
+    - match: HostSNI(`mqtt.cenotoo.issel-portal.com`)
+      priority: 10
+      services:
+        - name: cenotoo-mosquitto
+          port: 1883
+    - match: HostSNI(`*`)
+      priority: 1
+      services:
+        - name: cenotoo-mosquitto
+          port: 1883
+  tls:
+    secretName: cenotoo-mqtt-tls

@@ -1,0 +1,17 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    entryPoints:
+      mqtts:
+        address: ":8883"
+    ports:
+      mqtts:
+        port: 8883
+        expose:
+          default: true
+        exposedPort: 8883
+        protocol: TCP

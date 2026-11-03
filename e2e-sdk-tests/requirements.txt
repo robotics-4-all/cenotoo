@@ -1,0 +1,5 @@
+# SDK pinned to a reviewed commit — bump SDK_REF deliberately, never track main.
+# SSH alternative for private checkouts:
+#   nostradamus-ioto-sdk @ git+ssh://git@github.com/robotics-4-all/nostradamus-ioto-sdk.git@<sha>
+nostradamus-ioto-sdk @ git+https://github.com/robotics-4-all/nostradamus-ioto-sdk.git@4f8e7fc7c28c859eefed9f7382d1b148a5c6eeb8
+pytest>=7.4.0

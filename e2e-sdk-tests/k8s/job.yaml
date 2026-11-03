@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sdk-e2e-tests
+  labels:
+    app.kubernetes.io/component: sdk-e2e-tests
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: sdk-e2e-tests
+        app.kubernetes.io/part-of: cenotoo
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: e2e
+          image: sdk-e2e-tests:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CENOTOO_BASE_URL
+              value: "http://cenotoo-api:8000"
+            # Create once per cluster (values from .secrets/credentials.txt on the host):
+            #   kubectl -n cenotoo create secret generic cenotoo-e2e-credentials \
+            #     --from-literal=username=<admin> --from-literal=password=<pass>
+            - name: CENOTOO_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-e2e-credentials
+                  key: username
+            - name: CENOTOO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cenotoo-e2e-credentials
+                  key: password
+            - name: E2E_TIMEOUT_S
+              value: "300"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
