@@ -42,45 +42,91 @@ gcloud compute instances add-access-config cenotoo-1 --zone=us-central1-a \
 You must explicitly allow the ports Cenotoo exposes. The installer can configure `ufw` on the VM, but **GCP's perimeter firewall must be opened separately**.
 
 ```bash
-# Always: API + dashboard
-gcloud compute firewall-rules create cenotoo-http \
+# Public TLS endpoints: HTTP (ACME + redirect), HTTPS, MQTT-over-TLS
+gcloud compute firewall-rules create cenotoo-public \
   --direction=INGRESS --action=ALLOW \
-  --rules=tcp:80,tcp:443,tcp:30080,tcp:30081 \
-  --target-tags=cenotoo --source-ranges=0.0.0.0/0
-
-# If using MQTT
-gcloud compute firewall-rules create cenotoo-mqtt \
-  --direction=INGRESS --action=ALLOW \
-  --rules=tcp:1883 \
-  --target-tags=cenotoo --source-ranges=0.0.0.0/0
-
-# If using CoAP (UDP)
-gcloud compute firewall-rules create cenotoo-coap \
-  --direction=INGRESS --action=ALLOW \
-  --rules=udp:30683 \
+  --rules=tcp:80,tcp:443,tcp:8883 \
   --target-tags=cenotoo --source-ranges=0.0.0.0/0
 ```
 
 | Port  | Proto | Purpose                          | When to open                     |
 |------:|:-----:|----------------------------------|----------------------------------|
 | 22    | TCP   | SSH                              | Always (lock down to your IP)    |
-| 80    | TCP   | HTTP / Let's Encrypt HTTP-01     | If using domain + TLS            |
-| 443   | TCP   | HTTPS                            | If using domain + TLS            |
-| 30080 | TCP   | Cenotoo API (NodePort)           | If exposing API via NodePort     |
-| 30081 | TCP   | Dashboard (NodePort)             | If installing the dashboard      |
-| 1883  | TCP   | MQTT broker                      | If installing MQTT bridge        |
-| 30683 | UDP   | CoAP bridge                      | If installing CoAP bridge        |
+| 80    | TCP   | HTTP + ACME HTTP-01 challenge    | Always (needed for issuance + renewals) |
+| 443   | TCP   | HTTPS (API + dashboard)          | Always                           |
+| 8883  | TCP   | MQTT over TLS                    | If installing the MQTT bridge    |
+
+Legacy NodePorts 30080/30081/30683 are closed — see the breaking-change
+note below. CoAP is cluster-internal only (no public port).
 
 For TLS via Let's Encrypt's HTTP-01 challenge, **port 80 must be reachable from the internet** during certificate issuance.
 
 ### Point your DNS records (optional, required for TLS)
 
-Add an `A` record for your domain pointing to the VM's external IP. Verify before running the installer:
+Create one `A` record per public host, all pointing to the VM's external IP.
+Verify before running the installer:
+
+| Host | Record | Value |
+|------|--------|-------|
+| `api.example.com` | `A` | VM external IP |
+| `dashboard.example.com` | `A` | VM external IP |
+| `mqtt.example.com` | `A` | VM external IP |
+
+(Replace `example.com` with the domain persisted via `scripts/set-domain.sh
+--domain` — hosts are derived as `api/dashboard/mqtt.<base-domain>`.)
 
 ```bash
 dig +short api.example.com
 # → 34.123.45.67   (must match VM external IP)
 ```
+
+---
+
+## 1b. Public TLS Endpoints
+
+Public TLS serves the API, dashboard, and MQTT behind one domain with a
+shared Let's Encrypt certificate. On the VM:
+
+```bash
+# Persist config (validated before writing)
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com
+
+# Preview derived hosts + DNS/firewall checklist (writes nothing)
+sudo ./scripts/set-domain.sh --show
+
+# Persist + apply in one step (renders + applies ingress, certificate, MQTT route)
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com --apply
+```
+
+`--reset` moves `deploy/k8s/cenotoo.env` to
+`cenotoo.env.bak.<timestamp>` — cluster objects (Certificate, ingresses,
+IngressRouteTCP) are **left untouched** and keep serving until deleted
+explicitly.
+
+| Service | Public endpoint | Firewall |
+|---------|-----------------|----------|
+| REST API | `https://api.<base-domain>` | 443/tcp |
+| Dashboard | `https://dashboard.<base-domain>` | 443/tcp |
+| MQTT | `mqtts://mqtt.<base-domain>:8883` | 8883/tcp |
+
+CoAP is cluster-internal only (no public endpoint).
+
+### ⚠️ Breaking change
+
+Applying public TLS closes the legacy NodePorts 30080 (API), 30081
+(dashboard), and 30683 (CoAP). Clients must move from
+the historical `http://<node-ip>:30080` to `https://api.<base-domain>`.
+
+### ACME staging (test without rate limits)
+
+```bash
+# In deploy/k8s/cenotoo.env before --apply:
+CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+Staging certificates are untrusted — use `--cafile` with the staging chain
+or `--insecure` for smoke tests only. Restore
+`https://acme-v02.api.letsencrypt.org/directory` for production.
 
 ---
 
@@ -151,13 +197,13 @@ After the installer finishes you will see a summary box. Quick checks:
 # Cluster + pods
 kubectl get pods -n cenotoo
 
-# API health
-NODE_IP=$(curl -s ifconfig.me)
-curl http://$NODE_IP:30080/health
-# → {"status":"ok"}
+# Public TLS endpoints
+curl https://api.example.com/health        # → {"status":"ok"}
+curl -vk https://mqtt.example.com:8883 2>&1 | head -5   # TLS handshake on the MQTT entrypoint
 
-# With TLS
-curl https://api.example.com/health
+# MQTT publish over TLS
+mosquitto_pub -h mqtt.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -t "myorg/myproject/sensors" -m '{"temp": 22.5}'
 ```
 
 The credentials file is at `./.secrets/credentials.txt`. **Save it somewhere safe and delete the local copy when you're done.**
@@ -173,7 +219,7 @@ The installer gets you running. These are things you should do before treating t
 - [ ] **Move credentials off the VM** — copy `./.secrets/credentials.txt` to your password manager and delete the file.
 - [ ] **Snapshot the boot disk** — `gcloud compute disks snapshot cenotoo-1 --zone=us-central1-a`.
 - [ ] **Enable Cassandra backups** with [Medusa](https://docs.k8ssandra.io/components/medusa/) if running long-term.
-- [ ] **Lock down NodePorts** — if you used `ingress-tls`, close 30080/30081 in the GCP firewall (only 80/443 should be open).
+- [ ] **Confirm NodePorts are closed** — public TLS closes legacy ports 30080/30081/30683; only 80/443/8883 should be open in the GCP firewall.
 - [ ] **Configure log retention** — `journalctl --vacuum-time=14d` on the VM.
 - [ ] **Set up monitoring alerts** — point Grafana to Slack/PagerDuty via the bundled Alertmanager.
 

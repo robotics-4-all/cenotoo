@@ -268,6 +268,60 @@ Change the Cassandra superuser password after first boot. Kafka credentials are 
 | Flink | Per FlinkDeployment config | Per FlinkDeployment config |
 | Each consumer | 128-512Mi | 0.1-0.5 cores |
 
+## Public TLS Endpoints (Optional)
+
+Serve the API, dashboard, and MQTT over TLS with a shared Let's Encrypt
+certificate:
+
+```bash
+# Persist domain config (validated before writing)
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com
+
+# Preview derived hosts + DNS/firewall checklist (writes nothing)
+sudo ./scripts/set-domain.sh --show
+
+# Persist + apply public exposure in one step
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com --apply
+```
+
+`--reset` renames `deploy/k8s/cenotoo.env` to
+`cenotoo.env.bak.<timestamp>`; cluster objects (Certificate, ingresses,
+IngressRouteTCP) are **left untouched** and keep serving until deleted.
+
+| Service | Public endpoint |
+|---------|-----------------|
+| REST API | `https://api.<base-domain>` |
+| Dashboard | `https://dashboard.<base-domain>` |
+| MQTT | `mqtts://mqtt.<base-domain>:8883` (TLS at Traefik; broker stays `:1883` in-cluster) |
+
+| DNS host | Record | Value |
+|----------|--------|-------|
+| `api.<base-domain>` | `A` | k3s node public IP |
+| `dashboard.<base-domain>` | `A` | k3s node public IP |
+| `mqtt.<base-domain>` | `A` | k3s node public IP |
+
+| Port | Proto | Purpose |
+|-----:|:-----:|---------|
+| 80 | TCP | HTTP + ACME HTTP-01 (keep reachable for renewals) |
+| 443 | TCP | HTTPS (API + dashboard) |
+| 8883 | TCP | MQTT over TLS |
+
+MQTT client example:
+
+```bash
+mosquitto_pub -h mqtt.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -t "myorg/myproject/sensors" -m '{"temp": 22.5}'
+```
+
+**Breaking change:** applying public TLS closes legacy NodePorts 30080, 30081,
+and 30683. CoAP is cluster-internal only (no public endpoint).
+
+**ACME staging** (avoid rate limits while testing): set
+`CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory`
+in `deploy/k8s/cenotoo.env` before `--apply`. Staging certificates are
+untrusted — restore
+`https://acme-v02.api.letsencrypt.org/directory` for production.
+
 ## Troubleshooting
 
 **cassandra-writer in CrashLoopBackOff**

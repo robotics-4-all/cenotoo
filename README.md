@@ -82,7 +82,7 @@ There is no hosted version. You own your data, your infrastructure, and your pip
 | # | Feature | Endpoint | Status |
 |---|---------|----------|:------:|
 | 1 | **HTTP Data Ingestion** — single records or JSON arrays, schema-validated against collection definition | `POST /send_data` | ✅ |
-| 2 | **MQTT Ingestion** — Mosquitto broker + bridge auto-routes any topic to Kafka; zero device-side config | broker port `1883` | ✅ |
+| 2 | **MQTT Ingestion** — Mosquitto broker + bridge auto-routes any topic to Kafka; zero device-side config | `mqtts://mqtt.<base-domain>:8883` (in-cluster plaintext `:1883`) | ✅ |
 | 3 | **CoAP Ingestion** — lightweight UDP ingestion for constrained devices with API key auth + HTTP health probe | `UDP /{org}/{project}/{collection}` | ✅ |
 | 4 | **Historical Data Query** — field filters, time range, ordering, and pagination | `GET /get_data` | ✅ |
 | 5 | **Time-series Statistics** — `avg`, `max`, `min`, `sum`, `count`, `distinct`, percentiles `p50`–`p99` over configurable intervals | `GET /statistics` | ✅ |
@@ -100,7 +100,7 @@ There is no hosted version. You own your data, your infrastructure, and your pip
 | 18 | **Data Export** — download full collection data as CSV or Parquet | `GET /export` | ✅ |
 | 19 | **Bulk Import** — upload CSV or JSON files with partial success handling and per-record error reporting | `POST /import` | ✅ |
 | 20 | **Webhooks & Alerts** — define threshold rules that fire HTTP webhooks when data conditions are met | `CRUD /rules` | ✅ |
-| 21 | **Web Dashboard** — React + Vite SPA for orgs, projects, collections, devices, API keys, live data, and dashboards | served via NodePort `30081` or HTTPS ingress | ✅ |
+| 21 | **Web Dashboard** — React + Vite SPA for orgs, projects, collections, devices, API keys, live data, and dashboards | `https://dashboard.<base-domain>` | ✅ |
 | 22 | **Guided Installer** — single interactive script provisions the full stack with preflight, plan-preview, and post-install verification | `scripts/install.sh` | ✅ |
 
 ---
@@ -159,23 +159,106 @@ sudo ./scripts/09-expose-api.sh                  # Public ingress + Let's Encryp
 **Verify:**
 
 ```bash
+# Public TLS endpoints (after scripts/set-domain.sh + scripts/09-expose-api.sh):
+curl https://api.example.com/health   # → {"status":"ok"}
+curl https://api.example.com/docs     # Swagger UI
+
+# Local NodePort verify (pre-TLS / emergency-rollback only — NodePorts 30080/30081 are closed once TLS is applied):
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
-curl http://${NODE_IP}:30080/health   # → {"status":"ok"}
-curl http://${NODE_IP}:30080/docs     # Swagger UI
+curl http://${NODE_IP}:30080/health   # legacy NodePort, closed once TLS is applied
 ```
 
 For the full walkthrough see the **[Deployment Guide](docs/k3s-setup.md)**.
 
 ---
 
+## 🔒 Public TLS Endpoints
+
+Configure one domain and serve the API, dashboard, and MQTT over TLS with a
+single shared Let's Encrypt certificate (`scripts/set-domain.sh` +
+`scripts/09-expose-api.sh`).
+
+### Configure the domain
+
+```bash
+# Persist config to deploy/k8s/cenotoo.env (validated before writing)
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com
+
+# Preview derived hosts + DNS/firewall checklist (writes nothing)
+sudo ./scripts/set-domain.sh --show
+
+# Persist + apply the public exposure in one step
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com --apply
+```
+
+`--reset` moves `deploy/k8s/cenotoo.env` to
+`cenotoo.env.bak.<timestamp>`. **Reset does NOT touch cluster objects** — the
+Certificate, ingresses, and IngressRouteTCP keep serving until you delete them
+explicitly (`kubectl delete -f` on the rendered manifests).
+
+### Endpoints
+
+| Service | Public endpoint | Notes |
+|---------|-----------------|-------|
+| REST API | `https://api.<base-domain>` | Swagger UI at `/docs` |
+| Dashboard | `https://dashboard.<base-domain>` | Rebuild via `10-deploy-dashboard.sh` after a domain change |
+| MQTT | `mqtts://mqtt.<base-domain>:8883` | TLS terminated at Traefik; broker stays plaintext `:1883` in-cluster |
+
+### DNS
+
+| Host | Record | Value |
+|------|--------|-------|
+| `api.<base-domain>` | `A` | k3s node public IP |
+| `dashboard.<base-domain>` | `A` | k3s node public IP |
+| `mqtt.<base-domain>` | `A` | k3s node public IP |
+
+### Firewall (public ports only)
+
+| Port | Proto | Purpose |
+|-----:|:-----:|---------|
+| 80 | TCP | HTTP + ACME HTTP-01 challenge (must stay reachable for renewals) |
+| 443 | TCP | HTTPS (API + dashboard) |
+| 8883 | TCP | MQTT over TLS |
+
+### MQTT client example
+
+```bash
+mosquitto_pub -h mqtt.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
+  -t "myorg/myproject/sensors" \
+  -m '{"temp": 22.5}'
+```
+
+### ⚠️ Breaking change
+
+Public TLS **closes the legacy NodePorts 30080 (API), 30081 (dashboard), and
+30683 (CoAP)**. Historical references to `http://<node-ip>:30080` must be updated
+to `https://api.<base-domain>`. CoAP remains **cluster-internal only** — there
+is no public CoAP endpoint.
+
+### ACME staging
+
+To avoid Let's Encrypt rate limits while testing, set the staging server
+before applying:
+
+```bash
+# In deploy/k8s/cenotoo.env (or via the interactive prompt):
+CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+Staging certificates are **not trusted by browsers/clients** (use `--cafile`
+with the staging chain or `--insecure` for smoke tests only). Switch back to
+`https://acme-v02.api.letsencrypt.org/directory` for production.
+
+---
+
 ## 📡 REST API
 
-The [cenotoo-api](https://github.com/robotics-4-all/cenotoo-api) repository provides the full REST interface. Swagger UI is available at `http://<node-ip>:30080/docs` after deployment.
+The [cenotoo-api](https://github.com/robotics-4-all/cenotoo-api) repository provides the full REST interface. Swagger UI is available at `https://api.<base-domain>/docs` after public TLS exposure (`scripts/09-expose-api.sh`).
 
 ### Core Workflow
 
 ```bash
-BASE="http://<node-ip>:30080/api/v1"
+BASE="https://api.<base-domain>/api/v1"
 
 # Authenticate
 TOKEN=$(curl -s -X POST "$BASE/token" \
@@ -246,9 +329,13 @@ curl -N "$BASE/projects/$PROJECT/collections/<cid>/stream" \
 Any MQTT-capable device publishes with zero integration code. The bridge subscribes to `#` and routes every message automatically:
 
 ```bash
-mosquitto_pub -h <broker-ip> -p 1883 \
+# Public TLS (recommended) — verify with --cafile against the Let's Encrypt chain:
+mosquitto_pub -h mqtt.example.com -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt \
   -t "myorg/myproject/sensors" \
   -m '{"temp": 22.5, "humidity": 58, "node": "roof-01"}'
+
+# In-cluster plaintext only (never exposed publicly):
+# mosquitto_pub -h <broker-ip> -p 1883 -t "myorg/myproject/sensors" -m '{...}'
 ```
 
 Topic format `{org}/{project}/{collection}` maps to Kafka topic `{org}.{project}.{collection}` → Cassandra table `{project}_{collection}` in keyspace `{org}`.
@@ -258,8 +345,9 @@ Topic format `{org}/{project}/{collection}` maps to Kafka topic `{org}.{project}
 Lightweight UDP ingestion for constrained devices. API key auth is inline — no separate handshake:
 
 ```bash
+# Cluster-internal only — CoAP has no public endpoint. From inside the cluster:
 coap-client -m post \
-  "coap://<broker-ip>/myorg/myproject/sensors?key=<api_key>" \
+  "coap://cenotoo-coap-bridge:5683/myorg/myproject/sensors?key=<api_key>" \
   -e '{"temp": 22.5}'
 ```
 
@@ -287,9 +375,9 @@ Deploy it with:
 sudo ./scripts/10-deploy-dashboard.sh
 ```
 
-The dashboard is exposed on **NodePort `30081`** by default, and can be put behind the same Traefik + Let's Encrypt ingress as the API via `scripts/09-expose-api.sh`.
+The dashboard is served at `https://dashboard.<base-domain>` via the same Traefik + Let's Encrypt ingress as the API (`scripts/09-expose-api.sh`). The legacy NodePort `30081` is closed once TLS is applied.
 
-> The API base URL (`VITE_API_URL`) is baked into the SPA bundle at build time. If you switch from NodePort to ingress (or change the domain), re-run `10-deploy-dashboard.sh` to rebuild with the new URL.
+> The API base URL (`VITE_API_URL`) is baked into the SPA bundle at build time. If you change the domain, re-run `10-deploy-dashboard.sh` to rebuild with the new URL.
 
 ---
 
@@ -391,12 +479,12 @@ The guided installer (`scripts/install.sh`) automatically runs the smoke test af
 | Time-series Storage | Apache Cassandra 4.x | Plain `StatefulSet`, `NetworkTopologyStrategy`, partition key `(day, key)` |
 | Metadata Storage | PostgreSQL 15 | Orgs, projects, users, API keys, device registry, rules |
 | REST API | FastAPI + Pydantic | Swagger UI, ReDoc, OAuth2, rate limiting |
-| Web Dashboard | React + Vite | Served by nginx, exposed via NodePort or Traefik ingress |
+| Web Dashboard | React + Vite | Served by nginx, exposed via Traefik ingress (`https://dashboard.<base-domain>`; legacy NodePort 30081 closed) |
 | MQTT Broker | Eclipse Mosquitto | `mosquitto-go-auth` HTTP backend authenticates against `cenotoo-api` |
 | CoAP Bridge | aiocoap | Plaintext UDP only (DTLS experimental, not supported) |
 | Kafka Operator | Strimzi 0.51+ | KRaft, KafkaNodePools, SCRAM-SHA-512 ACLs |
 | Flink Operator | Apache Flink K8s Operator 1.14+ | K8s-native HA, PVC-backed checkpoints |
-| Ingress | Traefik (k3s built-in) + cert-manager | Let's Encrypt HTTP-01 for API + dashboard |
+| Ingress | Traefik (k3s built-in) + cert-manager | Let's Encrypt HTTP-01 for API + dashboard + MQTT SNI (`mqtts:8883`); CoAP stays cluster-internal |
 | Observability | Prometheus + Grafana | JMX exporters for Kafka + Flink, alerting rules |
 | Tracing | OpenTelemetry | Opt-in via `OTLP_ENDPOINT` |
 | Rate Limiting | slowapi | Per-endpoint, configurable |

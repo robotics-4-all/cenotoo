@@ -3,7 +3,7 @@
 # run-e2e.sh — Run the SDK e2e suite against a live Cenotoo API
 #
 # Usage:
-#   CENOTOO_BASE_URL=http://172.16.63.190:30080 \
+#   CENOTOO_BASE_URL=https://api.example.com \
 #   CENOTOO_USERNAME=admin CENOTOO_PASSWORD=... ./run-e2e.sh [--cleanup-only]
 # =============================================================================
 set -euo pipefail

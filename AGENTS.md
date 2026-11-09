@@ -127,6 +127,15 @@ bash scripts/build-images.sh --no-cache
 ruff check . && ruff format --check . && pytest tests/ -v
 ```
 
+## PUBLIC TLS ENDPOINTS
+
+- Domain config: `scripts/set-domain.sh` persists `deploy/k8s/cenotoo.env` (set/show/reset/apply); `--reset` only renames the env file — cluster objects untouched.
+- Public endpoints: `https://api.<base-domain>`, `https://dashboard.<base-domain>`, `mqtts://mqtt.<base-domain>:8883` (TLS at Traefik; brokers/Services stay ClusterIP/plaintext in-cluster).
+- CoAP is cluster-internal only — never document a public CoAP endpoint.
+- Legacy NodePorts 30080/30081/30683 are closed once TLS is applied (breaking change) — never document them as valid endpoints.
+- ACME staging: `CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory` for tests; production uses `https://acme-v02.api.letsencrypt.org/directory`.
+- MQTT TLS client example: `mosquitto_pub -h mqtt.<base-domain> -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt -t ... -m ...`.
+
 ## NOTES
 
 - Kafka uses KRaft mode — no ZooKeeper dependency anywhere in the stack.

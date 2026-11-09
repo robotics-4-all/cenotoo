@@ -32,7 +32,7 @@ There is deliberately no `like` operator.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CENOTOO_BASE_URL` | API base (no `/api/v1` suffix) | `http://cenotoo-api:8000` (in-cluster) |
+| `CENOTOO_BASE_URL` | API base (no `/api/v1` suffix) | `http://cenotoo-api:8000` (in-cluster) or `https://api.<base-domain>` (public TLS) |
 | `CENOTOO_USERNAME` / `CENOTOO_PASSWORD` | Seeded admin (OAuth2 password flow) | — (required) |
 | `E2E_PREFIX` | Resource name prefix | `e2e` |
 | `E2E_TIMEOUT_S` / `E2E_INTERVAL_S` | Poll-with-timeout for eventual consistency | `120` / `2` |
@@ -43,7 +43,7 @@ plain `pytest tests/` stays unaffected.
 ## Run locally
 
 ```bash
-CENOTOO_BASE_URL=http://172.16.63.190:30080 \
+CENOTOO_BASE_URL=https://api.example.com \
 CENOTOO_USERNAME=admin CENOTOO_PASSWORD='<from .secrets/credentials.txt>' \
   ./e2e-sdk-tests/run-e2e.sh
 # or directly:
@@ -56,10 +56,43 @@ CENOTOO_BASE_URL=... CENOTOO_USERNAME=... CENOTOO_PASSWORD=... \
 ```bash
 docker build -t sdk-e2e-tests:latest ./e2e-sdk-tests
 docker run --rm \
-  -e CENOTOO_BASE_URL=http://172.16.63.190:30080 \
+  -e CENOTOO_BASE_URL=https://api.example.com \
   -e CENOTOO_USERNAME=admin -e CENOTOO_PASSWORD='<pass>' \
   sdk-e2e-tests:latest
 ```
+
+## Public TLS Endpoints
+
+The API under test is served over TLS. Configure the domain once, then run
+the suite against the public endpoint:
+
+```bash
+sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com --apply
+CENOTOO_BASE_URL=https://api.example.com \
+CENOTOO_USERNAME=admin CENOTOO_PASSWORD='<from .secrets/credentials.txt>' \
+  ./e2e-sdk-tests/run-e2e.sh
+```
+
+| Service | Public endpoint |
+|---------|-----------------|
+| REST API | `https://api.<base-domain>` |
+| Dashboard | `https://dashboard.<base-domain>` |
+| MQTT | `mqtts://mqtt.<base-domain>:8883` |
+
+CoAP is cluster-internal only (no public endpoint). The legacy NodePorts
+30080/30081/30683 are closed and must not be used as test targets.
+
+DNS (`A` records → k3s node public IP): `api.<base-domain>`,
+`dashboard.<base-domain>`, `mqtt.<base-domain>`. Public firewall ports:
+80/tcp (ACME), 443/tcp (HTTPS), 8883/tcp (MQTT-over-TLS).
+
+Set/reset workflow: `sudo ./scripts/set-domain.sh --domain example.com
+--email ops@example.com [--apply]` to persist (+apply); `--show` previews
+without writing; `--reset` renames `cenotoo.env` to
+`cenotoo.env.bak.<timestamp>` and leaves cluster objects untouched.
+Use `CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory`
+for test runs (untrusted certs); production uses
+`https://acme-v02.api.letsencrypt.org/directory`.
 
 ## Run in-cluster
 
