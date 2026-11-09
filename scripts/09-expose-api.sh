@@ -1,402 +1,262 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 09-expose-api.sh — Expose the Cenotoo API (and dashboard) to the public internet
+# scripts/09-expose-api.sh — Idempotent TLS apply entrypoint (Task 9, plan
+# tls-ingress-exposure)
+# -----------------------------------------------------------------------------
+# Renders 00-traefik, 07-api, 08-dashboard, 09-mqtt into .rendered/k8s/ and
+# applies in order: HelmChartConfig, ClusterIssuer, TLSStore, Certificate,
+# ingresses, IngressRouteTCP. Waits up to 300s for Certificate Ready unless
+# --no-wait, then runs the Task 13 legacy-cleanup block (never before Ready).
 #
-# Guides you through setting up Ingress + TLS for the API service, and
-# optionally for the dashboard (served at dashboard.<domain> when present).
-# Prerequisites: k3s (01), cert-manager (02), API deployed (08)
+# Usage:
+#   scripts/09-expose-api.sh [--non-interactive] [--no-wait]
+#                           [--force-legacy-nodeport] [--help]
+#   No flags            -> interactive: prompt for domain/contact, persist
+#                          deploy/k8s/cenotoo.env (mode 0644), then apply.
+#   --non-interactive   -> require existing cenotoo.env; fail otherwise.
+#   --no-wait           -> skip the Certificate Ready wait (and the
+#                          post-Ready cleanup, which never runs before Ready).
+#   --force-legacy-nodeport -> EMERGENCY ROLLBACK ONLY: restore NodePort
+#                          services from git, skip the TLS apply, print an
+#                          explicit plaintext warning, exit 0.
+#
+# Legacy NodePort/plaintext mode is REMOVED (ruling R7, TLS-only
+# constraint). Any explicit request for it without the rollback flag is
+# refused with exit 2. The rollback flag is never presented as supported.
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST_DIR="$PROJECT_DIR/deploy/k8s"
-NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/ui.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
-BOLD='\033[1m'
-DIM='\033[2m'
-RED='\033[1;31m'
-GREEN='\033[1;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-CYAN='\033[1;36m'
-RESET='\033[0m'
+MANIFEST_DIR="$PROJECT_DIR/deploy/k8s"
+RENDERED_DIR="$PROJECT_DIR/.rendered/k8s"
+CERT_READY_TIMEOUT=300
 
-info()    { echo -e "  ${BLUE}▸${RESET} $*"; }
-ok()      { echo -e "  ${GREEN}✓${RESET} $*"; }
-warn()    { echo -e "  ${YELLOW}⚠${RESET} $*"; }
-fail()    { echo -e "  ${RED}✗${RESET} $*"; exit 1; }
-step()    { echo -e "\n${BOLD}[$1/$TOTAL_STEPS]${RESET} $2\n"; }
-dimtext() { echo -e "  ${DIM}$*${RESET}"; }
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS]
 
-prompt() {
-    local var_name="$1" prompt_text="$2" default="$3"
-    local value
-    echo -en "  ${BLUE}▸${RESET} ${prompt_text} "
-    [ -n "$default" ] && echo -en "${DIM}[${default}]${RESET} "
-    read -r value
-    value="${value:-$default}"
-    eval "$var_name=\"\$value\""
+Idempotent TLS apply entrypoint for Cenotoo public endpoints.
+
+Options:
+  --non-interactive        Require existing $MANIFEST_DIR/cenotoo.env;
+                           fail if it is missing. No prompts.
+  --no-wait                Skip the Certificate Ready wait (and the
+                           post-Ready legacy cleanup).
+  --force-legacy-nodeport  EMERGENCY ROLLBACK ONLY. Restores NodePort
+                           services from git, skips the TLS apply, prints
+                           a plaintext warning, exits 0. Not a supported
+                           mode — traffic is unencrypted.
+  --help, -h               Show this help.
+
+With no options, prompts for domain/contact, persists cenotoo.env,
+renders templates, applies in order, waits for Certificate Ready, runs
+legacy cleanup, and prints the endpoint summary.
+EOF
 }
 
-prompt_choice() {
-    local var_name="$1" prompt_text="$2"
-    shift 2
-    local options=("$@")
-    echo -e "  ${BLUE}▸${RESET} ${prompt_text}"
-    for i in "${!options[@]}"; do
-        echo -e "    ${BOLD}$((i+1)))${RESET} ${options[$i]}"
-    done
-    local choice
-    while true; do
-        echo -en "    ${DIM}Choice:${RESET} "
-        read -r choice
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
-            eval "$var_name=\"\$choice\""
-            return
-        fi
-        warn "Enter a number between 1 and ${#options[@]}"
-    done
+# ---- Legacy NodePort refusal (default) --------------------------------------
+# Plaintext NodePort mode was removed (ruling R7). Exit 2 with a security
+# warning — never silently downgrade to HTTP.
+refuse_legacy_nodeport() {
+    echo "" >&2
+    warn "Legacy NodePort/plaintext mode is REMOVED (TLS-only constraint)." >&2
+    warn "Exposing the API over plaintext HTTP leaks credentials and tokens." >&2
+    warn "Run without rollback flags to apply TLS ingress instead." >&2
+    warn "Emergency rollback only: $0 --force-legacy-nodeport" >&2
+    echo "" >&2
+    exit 2
 }
 
-echo ""
-echo -e "${CYAN}${BOLD}  ╔═══════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}  ║     Cenotoo API — Expose to Public       ║${RESET}"
-echo -e "${CYAN}${BOLD}  ╚═══════════════════════════════════════════╝${RESET}"
-echo ""
-
-TOTAL_STEPS=4
-
-EXPOSE_DASHBOARD=false
-if kubectl get deployment cenotoo-dashboard -n "$NAMESPACE" &>/dev/null; then
-    EXPOSE_DASHBOARD=true
-fi
-
-# ── Step 1: Preflight ────────────────────────────────────────────────────────
-step 1 "Preflight checks"
-
-command -v kubectl &>/dev/null || fail "kubectl is not installed"
-ok "kubectl found"
-
-kubectl get ns "$NAMESPACE" &>/dev/null || fail "Namespace '$NAMESPACE' not found — deploy Cenotoo first"
-ok "Namespace exists"
-
-kubectl get deployment cenotoo-api -n "$NAMESPACE" &>/dev/null || fail "API not deployed — run 08-deploy-api.sh first"
-ok "API deployment found"
-
-if kubectl get crd certificates.cert-manager.io &>/dev/null; then
-    HAS_CERT_MANAGER=true
-    ok "cert-manager available (TLS supported)"
-else
-    HAS_CERT_MANAGER=false
-    warn "cert-manager not found — TLS will not be available"
-fi
-
-INGRESS_CLASS=$(kubectl get ingressclass -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-if [ -n "$INGRESS_CLASS" ]; then
-    ok "Ingress controller found: $INGRESS_CLASS"
-else
-    warn "No ingress controller detected"
-    dimtext "k3s ships with Traefik by default — it may not be installed yet"
-fi
-
-# ── Step 2: Configure ────────────────────────────────────────────────────────
-step 2 "Configure exposure method"
-
-prompt_choice EXPOSE_METHOD "How do you want to expose the API?" \
-    "Domain + TLS (recommended for production)" \
-    "Domain without TLS (HTTP only)" \
-    "IP only — NodePort on port 30080 (no changes needed)"
-
-if [ "$EXPOSE_METHOD" = "3" ]; then
-    NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
-    echo ""
-    ok "API is already accessible at:"
-    echo ""
-    echo -e "    ${BOLD}http://${NODE_IP}:30080${RESET}"
-    echo -e "    ${BOLD}http://${NODE_IP}:30080/docs${RESET}"
-    [ "$EXPOSE_DASHBOARD" = "true" ] && echo -e "    ${BOLD}http://${NODE_IP}:30081${RESET} (dashboard)"
-    echo ""
-    dimtext "No changes were made."
-    dimtext "For public access, make sure ports 30080$([ "$EXPOSE_DASHBOARD" = "true" ] && echo " and 30081") are open in your firewall."
+# ---- Emergency rollback (flag only; never presented as supported) -----------
+# Restores NodePort services from git, skips the TLS apply, warns loudly.
+rollback_legacy_nodeport() {
+    echo "" >&2
+    warn "EMERGENCY ROLLBACK: restoring plaintext NodePort services." >&2
+    warn "TRAFFIC WILL BE UNENCRYPTED on ports 30080/30081/30683." >&2
+    warn "This is NOT a supported mode. Re-run without this flag to restore TLS." >&2
+    echo "" >&2
+    git -C "$PROJECT_DIR" checkout -- \
+        deploy/k8s/07-api/service.yaml \
+        deploy/k8s/08-dashboard/service.yaml \
+        deploy/k8s/10-coap/coap-bridge-service.yaml
+    ok "Restored NodePort service manifests from git."
+    require_cmd kubectl "Install kubectl, then re-run this script."
+    kubectl apply -f "$MANIFEST_DIR/07-api/service.yaml" -n "${CENOTOO_NAMESPACE:-cenotoo}"
+    kubectl apply -f "$MANIFEST_DIR/08-dashboard/service.yaml" -n "${CENOTOO_NAMESPACE:-cenotoo}"
+    kubectl apply -f "$MANIFEST_DIR/10-coap/coap-bridge-service.yaml" -n "${CENOTOO_NAMESPACE:-cenotoo}"
+    warn "Rollback complete: plaintext NodePorts 30080/30081/30683 restored. Traffic is UNENCRYPTED."
     exit 0
+}
+
+NON_INTERACTIVE=false
+NO_WAIT=false
+FORCE_LEGACY=false
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --non-interactive)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        --no-wait)
+            NO_WAIT=true
+            shift
+            ;;
+        --force-legacy-nodeport)
+            FORCE_LEGACY=true
+            shift
+            ;;
+        --nodeport|--http-only|--no-tls|--plaintext|legacy)
+            refuse_legacy_nodeport
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        *)
+            fail "Unknown option: $1. See --help."
+            ;;
+    esac
+done
+
+banner "Cenotoo Public TLS — Expose via Ingress"
+
+# ---- Config: interactive persists, non-interactive requires -----------------
+if [ "$FORCE_LEGACY" = "true" ]; then
+    : "${CENOTOO_NAMESPACE:=cenotoo}"
+    export CENOTOO_NAMESPACE
+    rollback_legacy_nodeport
 fi
 
-prompt DOMAIN "API domain name:" "api.cenotoo.example.com"
-
-if [ -z "$DOMAIN" ]; then
-    fail "Domain name is required for Ingress"
-fi
-
-DASHBOARD_DOMAIN=""
-if [ "$EXPOSE_DASHBOARD" = "true" ]; then
-    # Default dashboard subdomain: replace leading 'api.' with 'dashboard.', or
-    # prepend 'dashboard.' if the API domain doesn't follow that pattern.
-    if [[ "$DOMAIN" == api.* ]]; then
-        DEFAULT_DASHBOARD_DOMAIN="dashboard.${DOMAIN#api.}"
-    else
-        DEFAULT_DASHBOARD_DOMAIN="dashboard.${DOMAIN}"
+if [ "$NON_INTERACTIVE" = "true" ]; then
+    if [ ! -f "$CENOTOO_ENV_FILE" ]; then
+        fail "No config at $CENOTOO_ENV_FILE. Run scripts/set-domain.sh --domain <base-domain> --email <ops@example.com> first (--non-interactive never prompts)."
     fi
-    prompt DASHBOARD_DOMAIN "Dashboard domain name (or empty to skip):" "$DEFAULT_DASHBOARD_DOMAIN"
-fi
-
-ENABLE_TLS=false
-TLS_EMAIL=""
-if [ "$EXPOSE_METHOD" = "1" ]; then
-    if [ "$HAS_CERT_MANAGER" = "false" ]; then
-        warn "TLS requested but cert-manager is not installed"
-        warn "Run: sudo ./scripts/02-install-cert-manager.sh"
-        fail "Install cert-manager first, then re-run this script"
-    fi
-    ENABLE_TLS=true
-    prompt TLS_EMAIL "Email for Let's Encrypt:" ""
-    while [ -z "$TLS_EMAIL" ]; do
-        warn "Email is required for Let's Encrypt certificate issuance"
-        prompt TLS_EMAIL "Email for Let's Encrypt:" ""
-    done
-fi
-
-INGRESS_CLASS="${INGRESS_CLASS:-traefik}"
-
-echo ""
-echo -e "  ${BOLD}Summary:${RESET}"
-echo -e "    API domain:       ${BOLD}${DOMAIN}${RESET}"
-[ -n "$DASHBOARD_DOMAIN" ] && echo -e "    Dashboard domain: ${BOLD}${DASHBOARD_DOMAIN}${RESET}"
-echo -e "    TLS:              ${BOLD}$([ "$ENABLE_TLS" = "true" ] && echo "Yes (Let's Encrypt)" || echo "No")${RESET}"
-echo -e "    Ingress:          ${BOLD}${INGRESS_CLASS}${RESET}"
-[ "$ENABLE_TLS" = "true" ] && echo -e "    Email:            ${BOLD}${TLS_EMAIL}${RESET}"
-echo ""
-
-prompt CONFIRM "Proceed? (y/n):" "y"
-[ "$CONFIRM" != "y" ] && { echo "  Aborted."; exit 0; }
-
-# ── Step 3: Generate and apply manifests ─────────────────────────────────────
-step 3 "Apply manifests"
-
-mkdir -p "$MANIFEST_DIR/07-api"
-
-if [ "$ENABLE_TLS" = "true" ]; then
-    info "Creating ClusterIssuer for Let's Encrypt ..."
-
-    cat <<EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: cenotoo-letsencrypt
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${TLS_EMAIL}
-    privateKeySecretRef:
-      name: cenotoo-letsencrypt-key
-    solvers:
-      - http01:
-          ingress:
-            class: ${INGRESS_CLASS}
-EOF
-    ok "ClusterIssuer created"
-fi
-
-info "Creating Ingress ..."
-
-if [ "$ENABLE_TLS" = "true" ]; then
-    cat > "$MANIFEST_DIR/07-api/ingress.yaml" <<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: cenotoo-api
-  labels:
-    app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: cenotoo
-  annotations:
-    cert-manager.io/cluster-issuer: cenotoo-letsencrypt
-spec:
-  ingressClassName: ${INGRESS_CLASS}
-  tls:
-    - hosts:
-        - ${DOMAIN}
-      secretName: cenotoo-api-tls
-  rules:
-    - host: ${DOMAIN}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: cenotoo-api
-                port:
-                  name: http
-EOF
+    cenotoo_load_config
+    cenotoo_derive_hosts
 else
-    cat > "$MANIFEST_DIR/07-api/ingress.yaml" <<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: cenotoo-api
-  labels:
-    app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: cenotoo
-spec:
-  ingressClassName: ${INGRESS_CLASS}
-  rules:
-    - host: ${DOMAIN}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: cenotoo-api
-                port:
-                  name: http
-EOF
+    cenotoo_load_config
+    prompt CENOTOO_BASE_DOMAIN "Base domain" "${CENOTOO_BASE_DOMAIN:-}"
+    prompt CENOTOO_TLS_EMAIL "Contact address for ACME registration" "${CENOTOO_TLS_EMAIL:-}"
+    export CENOTOO_BASE_DOMAIN CENOTOO_TLS_EMAIL
+    # Validate via the shared lib (no duplicated regexes); fails before write.
+    cenotoo_derive_hosts
+    {
+        printf 'CENOTOO_BASE_DOMAIN=%s\n' "$CENOTOO_BASE_DOMAIN"
+        printf 'CENOTOO_TLS_EMAIL=%s\n' "$CENOTOO_TLS_EMAIL"
+        printf 'CENOTOO_NAMESPACE=%s\n' "${CENOTOO_NAMESPACE:-cenotoo}"
+        printf 'CENOTOO_ACME_SERVER=%s\n' "${CENOTOO_ACME_SERVER:-https://acme-v02.api.letsencrypt.org/directory}"
+        printf 'CENOTOO_COAP_ENABLED=%s\n' "${CENOTOO_COAP_ENABLED:-false}"
+    } > "$CENOTOO_ENV_FILE"
+    chmod 0644 "$CENOTOO_ENV_FILE"
+    ok "Wrote $CENOTOO_ENV_FILE (mode 0644)."
 fi
 
-kubectl apply -f "$MANIFEST_DIR/07-api/ingress.yaml" -n "$NAMESPACE"
-ok "Ingress created (API)"
+NAMESPACE="$CENOTOO_NAMESPACE"
+info "Base domain: $CENOTOO_BASE_DOMAIN"
+info "Namespace: $NAMESPACE"
 
-if [ -n "$DASHBOARD_DOMAIN" ]; then
-    info "Creating Ingress (dashboard) ..."
-    mkdir -p "$MANIFEST_DIR/08-dashboard"
-    if [ "$ENABLE_TLS" = "true" ]; then
-        cat > "$MANIFEST_DIR/08-dashboard/ingress.yaml" <<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: cenotoo-dashboard
-  labels:
-    app.kubernetes.io/component: dashboard
-    app.kubernetes.io/part-of: cenotoo
-  annotations:
-    cert-manager.io/cluster-issuer: cenotoo-letsencrypt
-spec:
-  ingressClassName: ${INGRESS_CLASS}
-  tls:
-    - hosts:
-        - ${DASHBOARD_DOMAIN}
-      secretName: cenotoo-dashboard-tls
-  rules:
-    - host: ${DASHBOARD_DOMAIN}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: cenotoo-dashboard
-                port:
-                  name: http
-EOF
-    else
-        cat > "$MANIFEST_DIR/08-dashboard/ingress.yaml" <<EOF
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: cenotoo-dashboard
-  labels:
-    app.kubernetes.io/component: dashboard
-    app.kubernetes.io/part-of: cenotoo
-spec:
-  ingressClassName: ${INGRESS_CLASS}
-  rules:
-    - host: ${DASHBOARD_DOMAIN}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: cenotoo-dashboard
-                port:
-                  name: http
-EOF
-    fi
-    kubectl apply -f "$MANIFEST_DIR/08-dashboard/ingress.yaml" -n "$NAMESPACE"
-    ok "Ingress created (dashboard)"
+require_cmd kubectl "Install kubectl, then re-run this script."
+
+# ---- Render all four trees ---------------------------------------------------
+step 1 5 "Render templates to .rendered/k8s"
+for _d in 00-traefik 07-api 08-dashboard 09-mqtt; do
+    cenotoo_render_tree "$MANIFEST_DIR/$_d" "$RENDERED_DIR/$_d"
+done
+
+# ---- CoAP SAN placeholder (Task 5 header contract) ---------------------------
+# The marker line is NOT valid dnsNames content and CENOTOO_COAP_ENABLED is
+# deliberately NOT in the render allow-list, so branch here with sed: expand
+# to the derived coap host entry when enabled, delete the line otherwise.
+# The marker must never reach the rendered tree.
+RENDERED_CERT="$RENDERED_DIR/00-traefik/certificate.yaml"
+if [ ! -f "$RENDERED_CERT" ]; then
+    fail "Rendered certificate not found: $RENDERED_CERT."
 fi
+if [ "${CENOTOO_COAP_ENABLED:-false}" = "true" ]; then
+    sed -i "s|^    # __CENOTOO_COAP_SAN__$|    - ${CENOTOO_COAP_HOST}|" "$RENDERED_CERT"
+    info "CoAP enabled: added ${CENOTOO_COAP_HOST} to certificate SAN list."
+else
+    sed -i "/^    # __CENOTOO_COAP_SAN__$/d" "$RENDERED_CERT"
+    info "CoAP disabled: coap SAN omitted (internal-only)."
+fi
+if grep -q "^    # __CENOTOO_COAP_SAN__$" "$RENDERED_CERT"; then
+    fail "CoAP placeholder leaked into $RENDERED_CERT — render contract violated."
+fi
+ok "Certificate SAN list finalized (no placeholder remains)."
 
-if [ "$ENABLE_TLS" = "true" ]; then
-    info "Waiting for TLS certificate (API) ..."
+# ---- Apply in order ----------------------------------------------------------
+step 2 5 "Apply manifests in order"
+info "Apply: HelmChartConfig (kube-system, Traefik entrypoints) ..."
+kubectl apply -f "$MANIFEST_DIR/00-traefik/helmchartconfig.yaml"
+info "Apply: ClusterIssuer cenotoo-letsencrypt ..."
+kubectl apply -f "$RENDERED_DIR/00-traefik/clusterissuer.yaml"
+info "Apply: TLSStore/default in $NAMESPACE ..."
+kubectl apply -f "$RENDERED_DIR/00-traefik/tlsstore.yaml" -n "$NAMESPACE"
+info "Apply: Certificate cenotoo-public-tls ..."
+kubectl apply -f "$RENDERED_CERT" -n "$NAMESPACE"
+info "Apply: API + dashboard ingresses ..."
+kubectl apply -f "$RENDERED_DIR/07-api/ingress.yaml" -n "$NAMESPACE"
+kubectl apply -f "$RENDERED_DIR/08-dashboard/ingress.yaml" -n "$NAMESPACE"
+info "Apply: MQTT IngressRouteTCP ..."
+kubectl apply -f "$RENDERED_DIR/09-mqtt/mqtt-ingressroutetcp.yaml" -n "$NAMESPACE"
+ok "All manifests applied."
+
+# ---- Wait for Certificate Ready ----------------------------------------------
+CERT_READY="Unknown"
+if [ "$NO_WAIT" = "true" ]; then
+    warn "--no-wait: skipping Certificate Ready check (legacy cleanup also skipped)."
+else
+    step 3 5 "Wait for Certificate Ready (up to ${CERT_READY_TIMEOUT}s)"
     ELAPSED=0
-    TIMEOUT=120
-    while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-        CERT_READY=$(kubectl get certificate cenotoo-api-tls -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+    while [ "$ELAPSED" -lt "$CERT_READY_TIMEOUT" ]; do
+        CERT_READY="$(kubectl get certificate cenotoo-public-tls -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "Unknown")"
         if [ "$CERT_READY" = "True" ]; then
-            ok "TLS certificate issued (API)"
+            ok "Certificate cenotoo-public-tls is Ready."
             break
         fi
-        sleep 5
-        ELAPSED=$((ELAPSED + 5))
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
     done
     if [ "$CERT_READY" != "True" ]; then
-        warn "API certificate not ready after ${TIMEOUT}s — it may take a few minutes"
-        dimtext "Check: kubectl describe certificate cenotoo-api-tls -n $NAMESPACE"
-    fi
-
-    if [ -n "$DASHBOARD_DOMAIN" ]; then
-        info "Waiting for TLS certificate (dashboard) ..."
-        ELAPSED=0
-        while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-            DASH_CERT_READY=$(kubectl get certificate cenotoo-dashboard-tls -n "$NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
-            if [ "$DASH_CERT_READY" = "True" ]; then
-                ok "TLS certificate issued (dashboard)"
-                break
-            fi
-            sleep 5
-            ELAPSED=$((ELAPSED + 5))
-        done
-        if [ "$DASH_CERT_READY" != "True" ]; then
-            warn "Dashboard certificate not ready after ${TIMEOUT}s — it may take a few minutes"
-            dimtext "Check: kubectl describe certificate cenotoo-dashboard-tls -n $NAMESPACE"
-        fi
+        warn "Certificate not Ready after ${CERT_READY_TIMEOUT}s (status: ${CERT_READY:-Unknown})."
+        warn "ACME hint: HTTP-01 needs DNS A records pointing at this node AND port 80 reachable; staging first: CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory."
+        dimtext "Check: kubectl -n $NAMESPACE describe certificate cenotoo-public-tls"
+        dimtext "Check: kubectl -n $NAMESPACE describe order,challenges"
+        fail "Certificate issuance timed out — legacy cleanup NOT run (re-run after DNS/port 80 validate)."
     fi
 fi
 
-# ── Step 4: Done ─────────────────────────────────────────────────────────────
-step 4 "Done"
-
-PROTOCOL="http"
-[ "$ENABLE_TLS" = "true" ] && PROTOCOL="https"
-
-echo -e "  ┌──────────────────────────────────────────────────┐"
-echo -e "  │  ${GREEN}${BOLD}Exposed successfully${RESET}                            │"
-echo -e "  │                                                  │"
-printf  "  │  %-48s │\n" "API:   ${PROTOCOL}://${DOMAIN}"
-printf  "  │  %-48s │\n" "Docs:  ${PROTOCOL}://${DOMAIN}/docs"
-if [ -n "$DASHBOARD_DOMAIN" ]; then
-    printf  "  │  %-48s │\n" "Dash:  ${PROTOCOL}://${DASHBOARD_DOMAIN}"
-fi
-echo -e "  │                                                  │"
-
-if [ "$ENABLE_TLS" = "true" ]; then
-    echo -e "  │  ${GREEN}✓${RESET} TLS enabled (Let's Encrypt)                  │"
+# ---- Task 13 cleanup: ONLY after the Ready check passes, never before --------
+if [ "$NO_WAIT" = "true" ]; then
+    warn "Post-Ready legacy cleanup skipped (--no-wait). Re-run without --no-wait once the certificate is Ready."
 else
-    echo -e "  │  ${YELLOW}⚠${RESET} No TLS — traffic is unencrypted              │"
+    step 4 5 "Legacy TLS artefact cleanup (Task 13)"
+    kubectl delete certificate cenotoo-api-tls --ignore-not-found -n "$NAMESPACE"
+    kubectl delete certificate cenotoo-dashboard-tls --ignore-not-found -n "$NAMESPACE"
+    kubectl delete secret cenotoo-api-tls --ignore-not-found -n "$NAMESPACE"
+    kubectl delete secret cenotoo-dashboard-tls --ignore-not-found -n "$NAMESPACE"
+    # Strip leftover competing-owner annotations (ruling R5); tolerate absence.
+    kubectl annotate ingress cenotoo-api cert-manager.io/cluster-issuer- -n "$NAMESPACE" 2>/dev/null || true
+    kubectl annotate ingress cenotoo-dashboard cert-manager.io/cluster-issuer- -n "$NAMESPACE" 2>/dev/null || true
+    ok "Legacy per-host certificates/secrets removed; sole owner is Certificate cenotoo-public-tls."
 fi
 
-echo -e "  └──────────────────────────────────────────────────┘"
-echo ""
-
-echo -e "  ${BOLD}DNS Setup:${RESET}"
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
-echo -e "  ${DIM}Point your domain(s) to the node's public IP:${RESET}"
-echo -e "  ${DIM}  ${DOMAIN}  →  A record  →  ${NODE_IP}${RESET}"
-[ -n "$DASHBOARD_DOMAIN" ] && echo -e "  ${DIM}  ${DASHBOARD_DOMAIN}  →  A record  →  ${NODE_IP}${RESET}"
-echo ""
-
-if [ -n "$DASHBOARD_DOMAIN" ]; then
-    echo -e "  ${BOLD}Dashboard note:${RESET}"
-    echo -e "  ${DIM}The dashboard's API URL was baked into the bundle at build time.${RESET}"
-    echo -e "  ${DIM}If you built it with a NodePort URL, rebuild with the new domain:${RESET}"
-    echo -e "  ${DIM}  CENOTOO_API_URL=${PROTOCOL}://${DOMAIN} sudo bash scripts/10-deploy-dashboard.sh${RESET}"
-    echo ""
-fi
-
-if [ "$ENABLE_TLS" = "true" ]; then
-    echo -e "  ${DIM}Certificate will auto-renew via cert-manager.${RESET}"
-    echo -e "  ${DIM}Check status: kubectl get certificate -n $NAMESPACE${RESET}"
-fi
-echo ""
+# ---- Endpoint summary ---------------------------------------------------------
+step 5 5 "Done"
+box \
+    "API:   https://${CENOTOO_API_HOST}" \
+    "Docs:  https://${CENOTOO_API_HOST}/docs" \
+    "Dash:  https://${CENOTOO_DASHBOARD_HOST}" \
+    "MQTT:  mqtts://${CENOTOO_MQTT_HOST}:8883 (broker plaintext on 1883 in-cluster)"
+cenotoo_dns_report
+ok "Public TLS exposure applied (idempotent — safe to re-run)."
