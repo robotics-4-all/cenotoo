@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/component: dashboard
     app.kubernetes.io/part-of: cenotoo
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/component: dashboard
     app.kubernetes.io/part-of: cenotoo
@@ -15,4 +15,3 @@ spec:
       port: 80
       targetPort: http
       protocol: TCP
-      nodePort: 30081
