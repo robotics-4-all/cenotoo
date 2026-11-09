@@ -8,6 +8,13 @@ API_SOURCE="${CENOTOO_API_DIR:-$(cd "$PROJECT_DIR/../cenotoo-api" 2>/dev/null &&
 
 IMAGE_NAME="${CENOTOO_API_IMAGE:-cenotoo-api}"
 IMAGE_TAG="${CENOTOO_API_TAG:-latest}"
+SCRIPT_LIB_DIR="$(cd "$(dirname "$0")/lib" && pwd)"
+if [ -f "$SCRIPT_LIB_DIR/domain.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$SCRIPT_LIB_DIR/domain.sh"
+    cenotoo_load_config
+    cenotoo_derive_hosts
+fi
 REGISTRY="${CENOTOO_API_REGISTRY:-}"
 K8S_NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
 K8S_DEPLOYMENT="${CENOTOO_API_DEPLOYMENT:-cenotoo-api}"
@@ -348,9 +355,9 @@ if [ "${CONFIGURED_ORG_ID:-}" != "" ]; then
     echo ""
     echo -e "  ${BOLD}Next steps:${RESET}"
     echo -e "  ${DIM}1. Deploy:    sudo ./scripts/07-deploy-cenotoo.sh${RESET}"
-    echo -e "  ${DIM}2. Login:     curl -X POST http://<node-ip>:30080/api/v1/token \\${RESET}"
+    echo -e "  ${DIM}2. Login:     curl -X POST https://${CENOTOO_API_HOST:-api.<base-domain>}/api/v1/token \\${RESET}"
     echo -e "  ${DIM}                -d 'username=${ADMIN_USERNAME}&password=***'${RESET}"
     echo -e "  ${DIM}3. Create org: POST /api/v1/organizations${RESET}"
-    echo -e "  ${DIM}4. API docs:  http://<node-ip>:30080/docs${RESET}"
+    echo -e "  ${DIM}4. API docs:  https://${CENOTOO_API_HOST:-api.<base-domain>}/docs${RESET}"
 fi
 echo ""

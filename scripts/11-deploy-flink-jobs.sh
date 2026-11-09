@@ -29,6 +29,11 @@ API_IMAGE="cenotoo-api:latest"
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
+cenotoo_load_config
+cenotoo_derive_hosts
+
 BOLD='\033[1m'
 RED='\033[1;31m'
 GREEN='\033[1;32m'
@@ -193,7 +198,6 @@ ok "cenotoo-api is running"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
 
 printf "  ┌─────────────────────────────────────────────────────┐\n"
 printf "  │  ${GREEN}${BOLD}Flink Jobs (Phase 1) deployed${RESET}                      │\n"
@@ -207,7 +211,7 @@ printf "  │  %-53s│\n" "GET  /projects/{pid}/collections/{cid}/jobs/{jid}"
 printf "  │  %-53s│\n" "DELETE /projects/{pid}/collections/{cid}/jobs/{jid}"
 printf "  │  %-53s│\n" "GET  /projects/{pid}/jobs"
 printf "  │                                                     │\n"
-printf "  │  ${DIM}Docs: http://${NODE_IP}:30080/docs${RESET}                   │\n"
+printf "  │  ${DIM}Docs: https://${CENOTOO_API_HOST}/docs${RESET}                    │\n"
 printf "  └─────────────────────────────────────────────────────┘\n"
 echo ""
 ok "Done"

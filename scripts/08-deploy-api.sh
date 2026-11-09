@@ -35,6 +35,11 @@ step()    { echo -e "\n${BOLD}[$1/6]${RESET} $2\n"; }
 dimtext() { echo -e "  ${DIM}$*${RESET}"; }
 b64()     { printf '%s' "$1" | base64 -w0; }
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
+cenotoo_load_config
+cenotoo_derive_hosts
+
 prompt() {
     local var_name="$1" prompt_text="$2" default="$3" is_secret="${4:-false}"
     local value
@@ -200,20 +205,18 @@ fi
 # ── Step 6: Done ─────────────────────────────────────────────────────────────
 step 6 "Done"
 
-NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "<node-ip>")
-
 echo -e "  ┌──────────────────────────────────────────────────┐"
 echo -e "  │  ${GREEN}${BOLD}API deployed successfully${RESET}                       │"
 echo -e "  │                                                  │"
 printf  "  │  %-48s │\n" "Image:    ${FULL_IMAGE}"
 printf  "  │  %-48s │\n" "Size:     ${IMAGE_SIZE_MB}MB"
 echo -e "  │                                                  │"
-printf  "  │  %-48s │\n" "API:      http://${NODE_IP}:30080"
-printf  "  │  %-48s │\n" "Docs:     http://${NODE_IP}:30080/docs"
+printf  "  │  %-48s │\n" "API:      https://${CENOTOO_API_HOST}"
+printf  "  │  %-48s │\n" "Docs:     https://${CENOTOO_API_HOST}/docs"
 echo -e "  │                                                  │"
 echo -e "  │  ${DIM}Admin credentials set during schema init.${RESET}      │"
 echo -e "  │  ${DIM}Login:${RESET}                                         │"
-echo -e "  │  ${DIM}  curl -X POST http://${NODE_IP}:30080/api/v1/token \\${RESET}"
+echo -e "  │  ${DIM}  curl -X POST https://${CENOTOO_API_HOST}/api/v1/token \\${RESET}"
 echo -e "  │  ${DIM}    -d 'username=<admin>&password=<pass>'${RESET}       │"
 echo -e "  └──────────────────────────────────────────────────┘"
 echo ""

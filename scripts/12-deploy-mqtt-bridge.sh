@@ -21,10 +21,16 @@ SECRETS_DIR="$MANIFEST_DIR/01-secrets"
 AUTH_SOURCE="$PROJECT_DIR/mqtt-auth"
 BRIDGE_SOURCE="$PROJECT_DIR/mqtt-bridge"
 NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
+RENDERED_DIR="$PROJECT_DIR/.rendered/k8s"
 AUTH_IMAGE="mqtt-auth:${MQTT_AUTH_TAG:-latest}"
 BRIDGE_IMAGE="mqtt-bridge:${MQTT_BRIDGE_TAG:-latest}"
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
+cenotoo_load_config
+cenotoo_derive_hosts
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -186,6 +192,10 @@ kubectl apply -f "$SECRETS_DIR/mqtt-credentials.yaml" -n "$NAMESPACE"
 info "Applying MQTT manifests (mqtt-auth sidecar + mosquitto + mqtt-bridge) ..."
 kubectl apply -f "$MANIFEST_DIR/09-mqtt/" -n "$NAMESPACE"
 
+info "Rendering + applying MQTT IngressRouteTCP (public mqtts) ..."
+cenotoo_render_tree "$MANIFEST_DIR/09-mqtt" "$RENDERED_DIR/09-mqtt"
+kubectl apply -f "$RENDERED_DIR/09-mqtt/mqtt-ingressroutetcp.yaml" -n "$NAMESPACE"
+
 info "Restarting mqtt-bridge to pick up new image and credentials ..."
 kubectl rollout restart deployment/cenotoo-mqtt-bridge -n "$NAMESPACE" 2>/dev/null || true
 
@@ -215,9 +225,6 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
-NODE_IP=$(kubectl get nodes \
-    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-    2>/dev/null || echo "<node-ip>")
 
 echo -e "  ┌──────────────────────────────────────────────────┐"
 echo -e "  │  ${GREEN}${BOLD}MQTT stack deployed successfully${RESET}                │"
@@ -226,10 +233,8 @@ printf  "  │  %-48s │\n" "mqtt-auth:   ${AUTH_IMAGE} (${AUTH_SIZE_MB}MB)"
 printf  "  │  %-48s │\n" "mqtt-bridge: ${BRIDGE_IMAGE} (${BRIDGE_SIZE_MB}MB)"
 printf  "  │  %-48s │\n" "Username:    ${BRIDGE_USERNAME}"
 echo -e "  │                                                  │"
+printf  "  │  %-48s │\n" "Public:    mqtts://${CENOTOO_MQTT_HOST}:8883"
 printf  "  │  %-48s │\n" "Broker: cenotoo-mosquitto:1883 (cluster-internal)"
-echo -e "  │                                                  │"
-echo -e "  │  ${DIM}To expose MQTT externally, add a NodePort or${RESET}   │"
-echo -e "  │  ${DIM}LoadBalancer to mosquitto-service.yaml.${RESET}         │"
 echo -e "  │                                                  │"
 echo -e "  │  ${DIM}Device auth: username=<project-uuid>${RESET}           │"
 echo -e "  │  ${DIM}             password=<write/master API key>${RESET}    │"

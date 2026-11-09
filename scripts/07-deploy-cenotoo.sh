@@ -14,6 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST_DIR="$(cd "$SCRIPT_DIR/../deploy/k8s" && pwd)"
 NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
+
 info()  { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
 ok()    { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
 warn()  { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
@@ -214,8 +217,19 @@ kubectl apply -f "$MANIFEST_DIR/04-flink/" -n "$NAMESPACE"
 info "Applying consumers ..."
 kubectl apply -f "$MANIFEST_DIR/05-consumers/" -n "$NAMESPACE"
 
+info "Applying public TLS (Traefik + certificate) ..."
+if [ ! -f "$MANIFEST_DIR/cenotoo.env" ]; then
+    warn "No domain config at $MANIFEST_DIR/cenotoo.env — skipping public TLS (deploy continues without public endpoints)."
+    warn "Run scripts/set-domain.sh, then scripts/09-expose-api.sh to expose public endpoints."
+else
+    "$SCRIPT_DIR/09-expose-api.sh" --non-interactive
+fi
+
 info "Applying API ..."
-kubectl apply -f "$MANIFEST_DIR/07-api/" -n "$NAMESPACE"
+kubectl apply -f "$MANIFEST_DIR/07-api/deployment.yaml" -n "$NAMESPACE"
+kubectl apply -f "$MANIFEST_DIR/07-api/service.yaml" -n "$NAMESPACE"
+# NOTE: 07-api/ingress.yaml.tpl is rendered+applied by 09-expose-api.sh
+# (TLS block above) — never kubectl-applied raw from this script.
 
 if kubectl get crd prometheusrules.monitoring.coreos.com &>/dev/null; then
     if [ -d "$MANIFEST_DIR/06-monitoring" ] && [ "$(ls -A "$MANIFEST_DIR/06-monitoring" 2>/dev/null)" ]; then

@@ -7,7 +7,7 @@
 #                   and Kafka producer)
 #
 # Unlike the MQTT stack, CoAP auth is built into the bridge — no sidecar needed.
-# Devices connect directly: coap://<node-ip>:30683/{org}/{project}/{collection}?key=<api_key>
+# CoAP is cluster-internal only (ClusterIP): coap://cenotoo-coap-bridge:5683/{org}/{project}/{collection}?key=<api_key>
 #
 # Prerequisites: k3s (01), Cenotoo infra deployed (07), Cassandra healthy
 # =============================================================================
@@ -16,11 +16,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST_DIR="$PROJECT_DIR/deploy/k8s"
+RENDERED_DIR="$PROJECT_DIR/.rendered/k8s"
 BRIDGE_SOURCE="$PROJECT_DIR/coap-bridge"
 NAMESPACE="${CENOTOO_NAMESPACE:-cenotoo}"
 BRIDGE_IMAGE="coap-bridge:${COAP_BRIDGE_TAG:-latest}"
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
+cenotoo_load_config
+cenotoo_derive_hosts
 
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -104,7 +110,13 @@ ok "Imported ${BRIDGE_IMAGE} into k3s containerd"
 step 4 "Deploy to k3s"
 
 info "Applying CoAP bridge manifests ..."
-kubectl apply -f "$MANIFEST_DIR/10-coap/" -n "$NAMESPACE"
+if ls "$MANIFEST_DIR/10-coap/"*.yaml.tpl >/dev/null 2>&1; then
+    cenotoo_render_tree "$MANIFEST_DIR/10-coap" "$RENDERED_DIR/10-coap"
+    kubectl apply -f "$RENDERED_DIR/10-coap" -n "$NAMESPACE"
+else
+    # No templates in 10-coap (internal-only ClusterIP service): apply as-is.
+    kubectl apply -f "$MANIFEST_DIR/10-coap/" -n "$NAMESPACE"
+fi
 
 info "Restarting coap-bridge to pick up new image ..."
 kubectl rollout restart deployment/cenotoo-coap-bridge -n "$NAMESPACE" 2>/dev/null || true
@@ -129,19 +141,17 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
-NODE_IP=$(kubectl get nodes \
-    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-    2>/dev/null || echo "<node-ip>")
 
 echo -e "  ┌──────────────────────────────────────────────────┐"
 echo -e "  │  ${GREEN}${BOLD}CoAP bridge deployed successfully${RESET}               │"
 echo -e "  │                                                  │"
 printf  "  │  %-48s │\n" "Image: ${BRIDGE_IMAGE} (${BRIDGE_SIZE_MB}MB)"
-printf  "  │  %-48s │\n" "Endpoint: coap://${NODE_IP}:30683"
+printf  "  │  %-48s │\n" "Endpoint: coap://cenotoo-coap-bridge:5683"
+echo -e "  │  ${DIM}(cluster-internal only — no public endpoint)${RESET}  │"
 echo -e "  │                                                  │"
-echo -e "  │  ${DIM}Publish: coap://<node>:30683/{org}/{project}/{coll}${RESET} │"
-echo -e "  │  ${DIM}         ?key=<write-or-master-api-key>${RESET}           │"
+echo -e "  │  ${DIM}Publish: coap://cenotoo-coap-bridge:5683${RESET}       │"
+echo -e "  │  ${DIM}         /{org}/{project}/{coll}?key=<api-key>${RESET} │"
 echo -e "  │                                                  │"
-echo -e "  │  ${DIM}Health:  http://<node>:<health-port>/health${RESET}       │"
+echo -e "  │  ${DIM}Health:  http://cenotoo-coap-bridge:8080/health${RESET} │"
 echo -e "  └──────────────────────────────────────────────────┘"
 echo ""

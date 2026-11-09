@@ -21,6 +21,11 @@ FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/domain.sh"
+cenotoo_load_config
+cenotoo_derive_hosts
+
 BOLD='\033[1m'
 DIM='\033[2m'
 RED='\033[1;31m'
@@ -85,20 +90,11 @@ ok "package.json found"
 step 2 "Configure API endpoint"
 
 echo -e "  ${DIM}The API URL is baked into the SPA bundle at build time.${RESET}"
-echo -e "  ${DIM}It must be reachable from the browser — use the node IP, not a cluster-internal address.${RESET}"
+echo -e "  ${DIM}It must be reachable from the browser — https:// public API host from config.${RESET}"
 echo ""
 
-NODE_IP=$(kubectl get nodes \
-    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-    2>/dev/null || echo "")
-
-if [ -n "$NODE_IP" ]; then
-    DEFAULT_API_URL="http://${NODE_IP}:30080"
-    ok "Detected node IP: ${NODE_IP}"
-else
-    DEFAULT_API_URL="http://192.168.1.29:30080"
-    warn "Could not detect node IP — using fallback default"
-fi
+DEFAULT_API_URL="https://${CENOTOO_API_HOST}"
+ok "Public API host: ${CENOTOO_API_HOST} (deprecated: legacy NodePort http://<node-ip>:30080 is closed)"
 
 prompt API_URL "API URL (VITE_API_URL):" "$DEFAULT_API_URL"
 
@@ -170,9 +166,6 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
-NODE_IP_FINAL=$(kubectl get nodes \
-    -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' \
-    2>/dev/null || echo "<node-ip>")
 
 echo -e "  ┌──────────────────────────────────────────────────┐"
 echo -e "  │  ${GREEN}${BOLD}Dashboard deployed successfully${RESET}                 │"
@@ -181,6 +174,6 @@ printf  "  │  %-48s │\n" "Image:     ${FULL_IMAGE}"
 printf  "  │  %-48s │\n" "Size:      ${IMAGE_SIZE_MB}MB"
 printf  "  │  %-48s │\n" "API URL:   ${API_URL}"
 echo -e "  │                                                  │"
-printf  "  │  %-48s │\n" "Dashboard: http://${NODE_IP_FINAL}:30081"
+printf  "  │  %-48s │\n" "Dashboard: https://${CENOTOO_DASHBOARD_HOST}"
 echo -e "  └──────────────────────────────────────────────────┘"
 echo ""
