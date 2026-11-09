@@ -71,6 +71,13 @@ Files written:
   .install.state     Per-step completion markers (--resume skips done steps).
   .secrets/credentials.txt   Generated passwords/secrets (chmod 600).
   .install.log       Combined install log.
+
+TLS exposure (ingress-tls mode):
+  After infra completes, install.sh prompts for the public base domain
+  and ACME contact address (if not already answered), persists them via
+  scripts/set-domain.sh (deploy/k8s/cenotoo.env), then runs
+  09-expose-api.sh --non-interactive. --resume reuses saved answers
+  but prompts for any missing domain/contact values instead of failing.
 EOF
 }
 
@@ -339,7 +346,7 @@ PLAN+=("10-deploy-dashboard.sh             → Web dashboard")
 [ "$INSTALL_FLINK_JOBS" = "true" ] && \
 PLAN+=("11-deploy-flink-jobs.sh            → Flink SQL gateway + jobs")
 [ "$EXPOSE_MODE" = "ingress-tls" ] && \
-PLAN+=("09-expose-api.sh                   → Ingress + TLS for $DOMAIN")
+PLAN+=("set-domain.sh + 09-expose-api.sh --non-interactive → TLS for $DOMAIN")
 
 echo -e "  ${BOLD}Steps to execute (in order):${RESET}"
 for entry in "${PLAN[@]}"; do
@@ -502,14 +509,33 @@ if [ "$INSTALL_FLINK_JOBS" = "true" ]; then
 fi
 
 # ---- Public exposure (TLS) ------------------------------------------------
+# Task 12 contract: ensure domain/contact AFTER infra, persist via the
+# set-domain.sh CLI (Task 4), then chain 09-expose-api.sh --non-interactive
+# (Task 9). --resume tolerates a missing domain config by prompting here
+# instead of failing. Only domain/contact are echoed — never secrets.
 if [ "$EXPOSE_MODE" = "ingress-tls" ]; then
     hr
-    info "→ Expose API with TLS for $DOMAIN"
+    info "→ Public TLS exposure (domain config + ingress)"
     hr
-    export CENOTOO_DOMAIN="$DOMAIN"
-    export CENOTOO_TLS_EMAIL="$TLS_EMAIL"
-    if ! "$SCRIPT_DIR/09-expose-api.sh"; then
-        warn "09-expose-api.sh exited non-zero — you may need to run it manually."
+    if [ -z "${DOMAIN:-}" ]; then
+        prompt DOMAIN "Base domain for public endpoints (e.g. example.com):" ""
+        while [ -z "$DOMAIN" ]; do
+            warn "Domain is required for ingress-tls mode."
+            prompt DOMAIN "Base domain for public endpoints:" ""
+        done
+    fi
+    if [ -z "${TLS_EMAIL:-}" ]; then
+        prompt TLS_EMAIL "Contact address for ACME registration:" ""
+        while [ -z "$TLS_EMAIL" ]; do
+            warn "Contact address is required by Let's Encrypt."
+            prompt TLS_EMAIL "Contact address for ACME registration:" ""
+        done
+    fi
+    if ! bash "$SCRIPT_DIR/set-domain.sh" --domain "$DOMAIN" --email "$TLS_EMAIL" --yes; then
+        fail "set-domain.sh failed to persist the domain config (see $LOG_FILE)"
+    fi
+    if ! bash "$SCRIPT_DIR/09-expose-api.sh" --non-interactive; then
+        warn "09-expose-api.sh --non-interactive exited non-zero — re-run it manually once DNS validates."
     fi
 fi
 
@@ -633,6 +659,13 @@ if [ "$EXPOSE_MODE" = "nodeport" ]; then
     echo -e "    ${DIM}  --source-ranges=0.0.0.0/0${RESET}"
     [ "$INSTALL_MQTT" = "true" ] && echo -e "    ${DIM}# MQTT: --rules=tcp:1883${RESET}"
     [ "$INSTALL_COAP" = "true" ] && echo -e "    ${DIM}# CoAP: --rules=udp:30683${RESET}"
+    echo ""
+fi
+
+if [ "$EXPOSE_MODE" = "ingress-tls" ]; then
+    echo -e "  ${BOLD}Change the domain later:${RESET}"
+    echo -e "     ${DIM}sudo $SCRIPT_DIR/set-domain.sh --show${RESET}"
+    echo -e "     ${DIM}sudo $SCRIPT_DIR/set-domain.sh --domain <base-domain> --email <ops@example.com> --apply${RESET}"
     echo ""
 fi
 
