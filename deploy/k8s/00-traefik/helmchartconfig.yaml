@@ -1,0 +1,67 @@
+# =============================================================================
+# Traefik HelmChartConfig — TLS ingress exposure (Task 2, plan tls-ingress-exposure)
+# =============================================================================
+# Purpose:
+#   - Expose a TCP entrypoint `mqtts` on 8883 for MQTT over TLS (consumed by
+#     Task 7 IngressRouteTCP; verified in Task 14).
+#   - Redirect plain HTTP (web entrypoint, port 80) to HTTPS (websecure, 443)
+#     with a permanent 308 redirect, cluster-global (risk R-K).
+#   - Keep `/.well-known/acme-challenge/*` reachable over plain HTTP so
+#     cert-manager HTTP-01 challenges succeed (ruling R2).
+#
+# REAPPLY (required after k3s upgrades — risk R-H):
+#   kubectl apply -f deploy/k8s/00-traefik/helmchartconfig.yaml
+#   # then wait for the k3s helm-controller to reconcile the traefik chart:
+#   kubectl -n kube-system rollout status deploy/traefik --timeout=180s
+#   kubectl -n kube-system get svc traefik -o wide   # expect port mqtts/8883
+#
+# VERSION PREFLIGHT (ruling R9 — HelmChartConfig cannot change the chart
+# version; run on the k3s host before/after apply):
+#   kubectl -n kube-system get deploy traefik \
+#     -o jsonpath='{.spec.template.spec.containers[0].image}'; echo
+#   - Traefik >= v3.2: primary path below applies; the
+#     `ports.web.allowACMEByPass` value is supported.
+#   - Traefik < v3.2: the value is UNKNOWN and Traefik crash-loops. Apply
+#     FALLBACK B instead and record the chosen path (see below).
+#
+# FALLBACK B (Review Focus risk R-A; use when Traefik < v3.2):
+#   1. Drop the `allowACMEByPass: true` line from this file and re-apply.
+#   2. Add an IngressRoute on the `web` entrypoint matching everything EXCEPT
+#      the ACME challenge path (priority 1), attached to a `redirectScheme`
+#      middleware (scheme https, permanent). The middleware always redirects,
+#      so no content leaks; the challenge path stays on plain HTTP.
+#   Chosen path for this host: PRIMARY (pending preflight on the k3s host —
+#   no cluster is reachable from the authoring host; see Task 14).
+#
+# REVERSIBILITY (risk R-K: the web redirect is cluster-global):
+#   kubectl delete helmchartconfig traefik -n kube-system --ignore-not-found
+#   then wait for helm-controller reconciliation; confirm 8883 is gone.
+#
+# MUST NOT (Task 2): disable Traefik, change its Service type, add a second
+# ingress class, touch cert-manager objects / Ingresses / MQTT broker config
+# (Tasks 5/6/7 own those), or hardcode domain names here.
+# =============================================================================
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: cenotoo
+spec:
+  valuesContent: |-
+    ports:
+      mqtts:
+        port: 8883
+        expose:
+          default: true
+        exposedPort: 8883
+        protocol: TCP
+      web:
+        allowACMEByPass: true
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true

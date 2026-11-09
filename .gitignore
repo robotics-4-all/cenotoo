@@ -42,3 +42,10 @@ cassandra2_data/
 recovery/
 
 .envsitter
+
+# Matrixx agent workspace (local-only orchestration state)
+.matrixx/
+
+# TLS-exposure domain config (gitignored) + rendered manifests
+deploy/k8s/cenotoo.env
+.rendered/

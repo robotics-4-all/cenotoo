@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/component: coap-bridge
     app.kubernetes.io/part-of: cenotoo
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app.kubernetes.io/component: coap-bridge
     app.kubernetes.io/part-of: cenotoo
@@ -15,7 +15,6 @@ spec:
       port: 5683
       targetPort: 5683
       protocol: UDP
-      nodePort: 30683
     - name: health-http
       port: 8080
       targetPort: 8080
