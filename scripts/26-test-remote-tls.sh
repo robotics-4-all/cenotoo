@@ -47,6 +47,15 @@
 # =============================================================================
 set -euo pipefail
 
+# Integrity guard: if a "# ---" separator line lost its leading "#" (stale or
+# hand-edited copy), bash executes it as a command and aborts mid-run. Fail
+# fast with an actionable message instead of a confusing "command not found".
+if grep -qE '^[[:space:]]*-{3,}[[:space:]]*$' "$0" 2>/dev/null; then
+    printf 'ERROR: %s is a corrupted/stale copy (separator lines lost their "#").\n' "$0" >&2
+    printf 'Fix: git checkout -- %s   (or: git pull)\n' "$0" >&2
+    exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
