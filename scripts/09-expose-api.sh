@@ -10,7 +10,8 @@
 #
 # Usage:
 #   scripts/09-expose-api.sh [--non-interactive] [--no-wait]
-#                           [--force-legacy-nodeport] [--help]
+#                           [--force-legacy-nodeport]
+#                           [--self-signed --ip <addr>] [--help]
 #   No flags            -> interactive: prompt for domain/contact, persist
 #                          deploy/k8s/cenotoo.env (mode 0644), then apply.
 #   --non-interactive   -> require existing cenotoo.env; fail otherwise.
@@ -19,6 +20,14 @@
 #   --force-legacy-nodeport -> EMERGENCY ROLLBACK ONLY: restore NodePort
 #                          services from git, skip the TLS apply, print an
 #                          explicit plaintext warning, exit 0.
+#   --self-signed --ip <addr> -> No public domain: mint a local CA +
+#                          server cert with SAN IP:<addr> (plus
+#                          api/dashboard/mqtt DNS for compat) via
+#                          openssl into the shared secret
+#                          cenotoo-public-tls; skip ALL ACME logic.
+#                          Mutually exclusive with rollback flag.
+#
+# Self-signed example: 09-expose-api.sh --self-signed --ip 203.0.113.10
 #
 # Legacy NodePort/plaintext mode is REMOVED (ruling R7, TLS-only
 # constraint). Any explicit request for it without the rollback flag is
@@ -55,11 +64,20 @@ Options:
                            services from git, skips the TLS apply, prints
                            a plaintext warning, exits 0. Not a supported
                            mode — traffic is unencrypted.
+  --self-signed            Mint a local CA + server cert (no domain).
+                            Requires --ip <addr>. Skips ClusterIssuer,
+                            Certificate, Ready wait, legacy cleanup.
+  --ip <addr>              Node public IP for the self-signed SAN
+                            (e.g. 203.0.113.10). IPv4 validated;
+                            IPv6 (colon-hex) accepted.
   --help, -h               Show this help.
 
 With no options, prompts for domain/contact, persists cenotoo.env,
 renders templates, applies in order, waits for Certificate Ready, runs
 legacy cleanup, and prints the endpoint summary.
+
+Self-signed example (no public domain):
+  09-expose-api.sh --self-signed --ip 203.0.113.10
 EOF
 }
 
@@ -100,6 +118,8 @@ rollback_legacy_nodeport() {
 NON_INTERACTIVE=false
 NO_WAIT=false
 FORCE_LEGACY=false
+SELF_SIGNED=false
+SELF_SIGNED_IP=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -115,6 +135,17 @@ while [ "$#" -gt 0 ]; do
             FORCE_LEGACY=true
             shift
             ;;
+        --self-signed)
+            SELF_SIGNED=true
+            shift
+            ;;
+        --ip)
+            if [ "$#" -lt 2 ]; then
+                fail "--ip requires a value (e.g. --ip 203.0.113.10)."
+            fi
+            SELF_SIGNED_IP="$2"
+            shift 2
+            ;;
         --nodeport|--http-only|--no-tls|--plaintext|legacy)
             refuse_legacy_nodeport
             ;;
@@ -128,6 +159,53 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+# ---- Self-signed IP validation (before ANY file writes) -----------------------
+# IPv4: dotted-quad shape + octet range 0-255. IPv6: colon-hex form.
+_valid_ipv4() {
+    local ip="$1"
+    case "$ip" in
+        *[!0-9.]*) return 1 ;;
+    esac
+    if ! printf '%s' "$ip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        return 1
+    fi
+    local o1="$ip" a b c d
+    a="${o1%%.*}"; o1="${o1#*.}"; b="${o1%%.*}"; o1="${o1#*.}"
+    c="${o1%%.*}"; d="${o1#*.}"
+    for o in "$a" "$b" "$c" "$d"; do
+        case "$o" in '' | *[!0-9]*) return 1 ;; esac
+        if [ "${#o}" -gt 3 ] || [ "$o" -gt 255 ]; then return 1; fi
+    done
+    return 0
+}
+
+_valid_ipv6() {
+    local ip="$1"
+    case "$ip" in
+        *:*)
+            case "$ip" in
+                *[!0-9A-Fa-f:.]*) return 1 ;;
+            esac
+            return 0
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ "$SELF_SIGNED" = "true" ]; then
+    if [ "$FORCE_LEGACY" = "true" ]; then
+        fail "--self-signed and --force-legacy-nodeport are mutually exclusive."
+    fi
+    if [ -z "$SELF_SIGNED_IP" ]; then
+        fail "--self-signed requires --ip <addr> (e.g. --self-signed --ip 203.0.113.10)."
+    fi
+    if ! _valid_ipv4 "$SELF_SIGNED_IP" && ! _valid_ipv6 "$SELF_SIGNED_IP"; then
+        fail "--ip '$SELF_SIGNED_IP' is not a valid IPv4/IPv6 address (e.g. 203.0.113.10)."
+    fi
+    if [ "$NO_WAIT" = "true" ]; then
+        warn "--no-wait has no effect with --self-signed (no Certificate Ready wait exists in this mode)."
+    fi
+fi
 banner "Cenotoo Public TLS — Expose via Ingress"
 
 # ---- Config: interactive persists, non-interactive requires -----------------
@@ -193,6 +271,65 @@ if grep -q "^    # __CENOTOO_COAP_SAN__$" "$RENDERED_CERT"; then
     fail "CoAP placeholder leaked into $RENDERED_CERT — render contract violated."
 fi
 ok "Certificate SAN list finalized (no placeholder remains)."
+
+# ---- Self-signed IP mode (no ACME) -------------------------------------------
+# Skips ClusterIssuer/Certificate/Ready-wait/Task-13 entirely. Mints a local
+# CA + server cert with SAN IP:<addr> plus the api/dashboard/mqtt DNS names
+# for compat, stores it in the shared secret, then applies TLSStore +
+# ingresses + IngressRouteTCP only.
+if [ "$SELF_SIGNED" = "true" ]; then
+    step 2 5 "Mint local CA + server cert (self-signed, IP SAN)"
+    require_cmd openssl "Install openssl, then re-run this script."
+    SELF_TMP="$(mktemp -d)"
+    trap 'rm -rf "$SELF_TMP"' EXIT
+    openssl genrsa -out "$SELF_TMP/ca.key" 4096 2>/dev/null
+    openssl req -x509 -new -nodes -key "$SELF_TMP/ca.key" -sha256 -days 825 \
+        -subj "/CN=Cenotoo Local CA" -out "$SELF_TMP/ca.crt"
+    openssl genrsa -out "$SELF_TMP/tls.key" 2048 2>/dev/null
+    {
+        printf '[req]\n'
+        printf 'distinguished_name = dn\n'
+        printf 'req_extensions = ext\n'
+        printf '[dn]\n'
+        printf '[ext]\n'
+        printf 'subjectAltName = IP:%s,DNS:%s,DNS:%s,DNS:%s\n' \
+            "$SELF_SIGNED_IP" "$CENOTOO_API_HOST" "$CENOTOO_DASHBOARD_HOST" "$CENOTOO_MQTT_HOST"
+    } > "$SELF_TMP/san.cnf"
+    openssl req -new -key "$SELF_TMP/tls.key" -subj "/CN=${SELF_SIGNED_IP}" \
+        -config "$SELF_TMP/san.cnf" -out "$SELF_TMP/tls.csr"
+    openssl x509 -req -in "$SELF_TMP/tls.csr" -CA "$SELF_TMP/ca.crt" \
+        -CAkey "$SELF_TMP/ca.key" -CAcreateserial -days 825 -sha256 \
+        -extensions ext -extfile "$SELF_TMP/san.cnf" -out "$SELF_TMP/tls.crt"
+    ok "Server cert minted with SAN IP:${SELF_SIGNED_IP} (+ api/dashboard/mqtt DNS)."
+    info "Apply: HelmChartConfig (kube-system, Traefik entrypoints) ..."
+    kubectl apply -f "$MANIFEST_DIR/00-traefik/helmchartconfig.yaml"
+    info "Apply: shared secret cenotoo-public-tls (self-signed) ..."
+    kubectl create secret tls cenotoo-public-tls \
+        --cert="$SELF_TMP/tls.crt" --key="$SELF_TMP/tls.key" \
+        -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    info "Apply: TLSStore/default in $NAMESPACE ..."
+    kubectl apply -f "$RENDERED_DIR/00-traefik/tlsstore.yaml" -n "$NAMESPACE"
+    info "Apply: API + dashboard ingresses ..."
+    kubectl apply -f "$RENDERED_DIR/07-api/ingress.yaml" -n "$NAMESPACE"
+    kubectl apply -f "$RENDERED_DIR/08-dashboard/ingress.yaml" -n "$NAMESPACE"
+    info "Apply: MQTT IngressRouteTCP ..."
+    kubectl apply -f "$RENDERED_DIR/09-mqtt/mqtt-ingressroutetcp.yaml" -n "$NAMESPACE"
+    ok "Self-signed manifests applied (no ACME objects created)."
+    step 5 5 "Done (self-signed)"
+    box \
+        "API:   https://${SELF_SIGNED_IP} (Host: ${CENOTOO_API_HOST})" \
+        "Docs:  https://${SELF_SIGNED_IP}/docs (Host: ${CENOTOO_API_HOST})" \
+        "Dash:  https://${SELF_SIGNED_IP} (Host: ${CENOTOO_DASHBOARD_HOST})" \
+        "MQTT:  mqtts://${SELF_SIGNED_IP}:8883 (SNI ${CENOTOO_MQTT_HOST})"
+    echo ""
+    warn "Self-signed mode: browsers/curl will NOT trust this cert until the local CA is installed."
+    dimtext "CA cert: $SELF_TMP/ca.crt (copy it off before the temp dir is removed on exit)"
+    dimtext "curl: curl --cacert <ca.crt> https://${SELF_SIGNED_IP}/docs -H 'Host: ${CENOTOO_API_HOST}' -k is NOT recommended"
+    dimtext "mqtt: mosquitto_pub --cafile <ca.crt> -h ${SELF_SIGNED_IP} -p 8883 -t test -m hi"
+    dimtext "Install the CA in the OS/browser trust store to silence warnings."
+    ok "Self-signed IP exposure applied (idempotent — safe to re-run)."
+    exit 0
+fi
 
 # ---- Apply in order ----------------------------------------------------------
 step 2 5 "Apply manifests in order"

@@ -322,6 +322,15 @@ in `deploy/k8s/cenotoo.env` before `--apply`. Staging certificates are
 untrusted — restore
 `https://acme-v02.api.letsencrypt.org/directory` for production.
 
+**No domain?** Use self-signed IP mode (no ACME, local CA, `SAN IP:<addr>`):
+
+```bash
+sudo ./scripts/09-expose-api.sh --self-signed --ip 203.0.113.10
+```
+
+Clients must trust the printed CA cert (`curl --cacert`, `mosquitto_pub
+--cafile`); browsers warn until the CA is installed.
+
 ## Troubleshooting
 
 **cassandra-writer in CrashLoopBackOff**

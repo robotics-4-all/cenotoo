@@ -135,6 +135,7 @@ ruff check . && ruff format --check . && pytest tests/ -v
 - Legacy NodePorts 30080/30081/30683 are closed once TLS is applied (breaking change) — never document them as valid endpoints.
 - ACME staging: `CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory` for tests; production uses `https://acme-v02.api.letsencrypt.org/directory`.
 - MQTT TLS client example: `mosquitto_pub -h mqtt.<base-domain> -p 8883 --cafile /etc/ssl/certs/ca-certificates.crt -t ... -m ...`.
+- No domain? `scripts/09-expose-api.sh --self-signed --ip <node-ip>` mints a local CA + `SAN IP:<addr>` cert into `cenotoo-public-tls`, skips ACME; clients must trust the printed CA (`--cacert`/`--cafile`).
 
 ## NOTES
 

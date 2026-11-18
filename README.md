@@ -249,6 +249,23 @@ Staging certificates are **not trusted by browsers/clients** (use `--cafile`
 with the staging chain or `--insecure` for smoke tests only). Switch back to
 `https://acme-v02.api.letsencrypt.org/directory` for production.
 
+### No domain? Self-signed IP mode
+
+Let's Encrypt never issues for bare IPs, so without a domain use
+`--self-signed --ip` — it mints a local CA + server cert with
+`SAN IP:<addr>` (plus `api/dashboard/mqtt` DNS for compat) into the shared
+secret `cenotoo-public-tls` and skips all ACME logic:
+
+```bash
+sudo ./scripts/09-expose-api.sh --self-signed --ip 203.0.113.10
+```
+
+Endpoints become `https://203.0.113.10` (with `Host: api.<base>`),
+`https://203.0.113.10` (dashboard), `mqtts://203.0.113.10:8883`.
+Every client must trust the printed CA cert (`--cacert` / `--cafile`);
+browsers warn until the CA is installed. Not for production — get a domain
+and use Let's Encrypt instead.
+
 ---
 
 ## 📡 REST API
