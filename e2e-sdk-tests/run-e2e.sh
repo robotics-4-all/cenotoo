@@ -17,9 +17,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 BASE_URL="${CENOTOO_BASE_URL:-}"
-USERNAME="${CENOTOO_USERNAME:-nostradamus}"
-PASSWORD="${CENOTOO_PASSWORD:-}"
 CA_BUNDLE="${CENOTOO_CA_BUNDLE:-}"
+
+# install.sh writes the seeded admin account to .secrets/credentials.txt.
+# Discover it so a deployment whose username is not the default still works;
+# explicit env vars always win.
+CRED_FILE="${CENOTOO_CREDENTIALS_FILE:-$(cd "$SCRIPT_DIR/.." && pwd)/.secrets/credentials.txt}"
+cred_field() {
+    local key="$1"
+    [ -r "$CRED_FILE" ] || return 1
+    grep -E "^(${key})=" "$CRED_FILE" 2>/dev/null | head -n1 | cut -d= -f2- \
+        | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//'
+}
+USERNAME="${CENOTOO_USERNAME:-$(cred_field 'ADMIN_USERNAME|CENOTOO_ADMIN_USERNAME' || true)}"
+USERNAME="${USERNAME:-nostradamus}"
+PASSWORD="${CENOTOO_PASSWORD:-$(cred_field 'ADMIN_PASSWORD|CENOTOO_ADMIN_PASSWORD' || true)}"
+export CENOTOO_USERNAME="$USERNAME"
 
 passed=0
 failed=0

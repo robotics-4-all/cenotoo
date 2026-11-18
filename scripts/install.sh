@@ -626,7 +626,7 @@ box \
     "API:       $API_URL" \
     "Docs:      $DOCS_URL" \
     "Dashboard: $DASH_URL" \
-    "Admin:     admin / (see .secrets/credentials.txt)" \
+    "Admin:     ${ADMIN_USERNAME:-nostradamus} / (see .secrets/credentials.txt)" \
     "" \
     "Smoke test: $SMOKE_RESULT" \
     "Full suite: $SUITE_RESULT"

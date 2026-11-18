@@ -14,8 +14,36 @@ import pytest
 pytestmark = pytest.mark.e2e
 
 BASE_URL = os.getenv("CENOTOO_BASE_URL", "")
-USERNAME = os.getenv("CENOTOO_USERNAME", "nostradamus")
-PASSWORD = os.getenv("CENOTOO_PASSWORD", "")
+
+
+def _cred_field(*keys: str) -> str:
+    """Read ADMIN_*/CENOTOO_ADMIN_* values from install.sh's credentials file.
+
+    ``install.sh`` seeds one admin account and records it in
+    ``.secrets/credentials.txt`` (chmod 600). Deployments whose username is not
+    the built-in default (``nostradamus``) are covered by discovery; explicit
+    environment variables always win.
+    """
+    path = os.getenv("CENOTOO_CREDENTIALS_FILE") or str(
+        Path(__file__).resolve().parent.parent / ".secrets" / "credentials.txt"
+    )
+    try:
+        content = Path(path).read_text()
+    except OSError:
+        return ""
+    pattern = re.compile(r"^(?:" + "|".join(keys) + r")=(.*)$", re.MULTILINE)
+    match = pattern.search(content)
+    if not match:
+        return ""
+    return match.group(1).strip().strip('"').strip("'")
+
+
+USERNAME = os.getenv("CENOTOO_USERNAME") or _cred_field(
+    "ADMIN_USERNAME", "CENOTOO_ADMIN_USERNAME"
+) or "nostradamus"
+PASSWORD = os.getenv("CENOTOO_PASSWORD") or _cred_field(
+    "ADMIN_PASSWORD", "CENOTOO_ADMIN_PASSWORD"
+)
 CA_BUNDLE = os.getenv("CENOTOO_CA_BUNDLE", "")
 E2E_PREFIX = os.getenv("E2E_PREFIX", "e2e")
 E2E_TIMEOUT_S = float(os.getenv("E2E_TIMEOUT_S", "300"))

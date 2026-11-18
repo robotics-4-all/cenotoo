@@ -23,8 +23,12 @@
 #                           by IP, so the public hostnames need no local DNS.
 #   CENOTOO_CA_BUNDLE       PEM CA bundle for the ingress certificate
 #                           (self-signed mode). Unset → system trust store.
-#   CENOTOO_USERNAME        API user               (default: nostradamus)
-#   CENOTOO_ADMIN_PASSWORD  API password           (falls back to CENOTOO_PASSWORD)
+#   CENOTOO_USERNAME        API user               (default: discovered from
+#                           .secrets/credentials.txt, else "nostradamus")
+#   CENOTOO_ADMIN_PASSWORD  API password           (falls back to CENOTOO_PASSWORD,
+#                           then to .secrets/credentials.txt)
+#   CENOTOO_CREDENTIALS_FILE Override the credentials file path
+#                           (default: <repo>/.secrets/credentials.txt)
 #   CENOTOO_DASHBOARD_HOST  Dashboard host         (default: dashboard.<base-domain>)
 #   CENOTOO_MQTT_HOST       MQTT host              (default: mqtt.<base-domain>)
 #   CENOTOO_ORG_NAME        Organization segment   (default: read from the API)
@@ -50,10 +54,22 @@ BASE_URL="${CENOTOO_BASE_URL:-https://api.cenotoo.local}"
 BASE_URL="${BASE_URL%/}"
 NODE_IP="${CENOTOO_NODE_IP:-}"
 CA_BUNDLE="${CENOTOO_CA_BUNDLE:-}"
-USERNAME="${CENOTOO_USERNAME:-nostradamus}"
-PASSWORD="${CENOTOO_ADMIN_PASSWORD:-${CENOTOO_PASSWORD:-}}"
 ORG_NAME_OVERRIDE="${CENOTOO_ORG_NAME:-}"
 TIMEOUT_S="${REMOTE_E2E_TIMEOUT_S:-90}"
+
+# install.sh records the seeded admin account here (chmod 600). Discover it so a
+# deployment whose username is NOT the default (nostradamus) still works: the
+# credentials file wins over the built-in default, env export wins over both.
+CRED_FILE="${CENOTOO_CREDENTIALS_FILE:-$PROJECT_DIR/.secrets/credentials.txt}"
+cred_field() {
+    local key="$1"
+    [ -r "$CRED_FILE" ] || return 1
+    grep -E "^(${key})=" "$CRED_FILE" 2>/dev/null | head -n1 | cut -d= -f2- \
+        | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//'
+}
+USERNAME="${CENOTOO_USERNAME:-$(cred_field 'ADMIN_USERNAME|CENOTOO_ADMIN_USERNAME' || true)}"
+USERNAME="${USERNAME:-nostradamus}"
+PASSWORD="${CENOTOO_ADMIN_PASSWORD:-${CENOTOO_PASSWORD:-$(cred_field 'ADMIN_PASSWORD|CENOTOO_ADMIN_PASSWORD' || true)}}"
 
 WITH_E2E=false
 if [ "${1:-}" = "--with-e2e" ]; then

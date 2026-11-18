@@ -34,7 +34,8 @@ There is deliberately no `like` operator.
 |----------|-------------|---------|
 | `CENOTOO_BASE_URL` | API base (no `/api/v1` suffix) | `http://cenotoo-api:8000` (in-cluster) or `https://api.<base-domain>` (public TLS) |
 | `CENOTOO_PASSWORD` | Seeded admin password (OAuth2 password flow) | — (required) |
-| `CENOTOO_USERNAME` | Seeded admin username | `nostradamus` |
+| `CENOTOO_USERNAME` | Seeded admin username | discovered from `.secrets/credentials.txt`, else `nostradamus` |
+| `CENOTOO_CREDENTIALS_FILE` | Override the install-generated credentials path | `<repo>/.secrets/credentials.txt` |
 | `CENOTOO_CA_BUNDLE` | PEM CA bundle for a private/self-signed ingress. `conftest.py` exports it as `SSL_CERT_FILE`, so both the SDK's bare `httpx.post()` token fetch and its `httpx.Client` API calls trust it (never `--insecure`) | unset → system trust store |
 | `E2E_PREFIX` | Resource name prefix | `e2e` |
 | `E2E_TIMEOUT_S` / `E2E_INTERVAL_S` | Poll-with-timeout for eventual consistency | `120` / `2` |
