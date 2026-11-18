@@ -34,6 +34,7 @@ There is deliberately no `like` operator.
 |----------|-------------|---------|
 | `CENOTOO_BASE_URL` | API base (no `/api/v1` suffix) | `http://cenotoo-api:8000` (in-cluster) or `https://api.<base-domain>` (public TLS) |
 | `CENOTOO_USERNAME` / `CENOTOO_PASSWORD` | Seeded admin (OAuth2 password flow) | — (required) |
+| `CENOTOO_CA_BUNDLE` | PEM CA bundle for a private/self-signed ingress. `conftest.py` exports it as `SSL_CERT_FILE`, so both the SDK's bare `httpx.post()` token fetch and its `httpx.Client` API calls trust it (never `--insecure`) | unset → system trust store |
 | `E2E_PREFIX` | Resource name prefix | `e2e` |
 | `E2E_TIMEOUT_S` / `E2E_INTERVAL_S` | Poll-with-timeout for eventual consistency | `120` / `2` |
 
@@ -93,6 +94,31 @@ without writing; `--reset` renames `cenotoo.env` to
 Use `CENOTOO_ACME_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory`
 for test runs (untrusted certs); production uses
 `https://acme-v02.api.letsencrypt.org/directory`.
+
+### Self-signed CA (no public DNS)
+
+When the cluster was exposed with `09-expose-api.sh --self-signed --ip <node-ip>`,
+the ingress certificate is signed by the local CA in `deploy/k8s/.local-ca/`
+(gitignored; also recoverable from Secret `cenotoo-public-ca`). Point the suite
+at that CA — the SDK needs it for the token fetch too, which is why
+`CENOTOO_CA_BUNDLE` becomes `SSL_CERT_FILE` rather than a `verify=` argument:
+
+```bash
+CENOTOO_BASE_URL=https://api.cenotoo.local \
+CENOTOO_USERNAME=nostradamus CENOTOO_PASSWORD='<pass>' \
+CENOTOO_CA_BUNDLE=deploy/k8s/.local-ca/ca.crt \
+  ./e2e-sdk-tests/run-e2e.sh
+```
+
+Without local DNS, run the transport checks first — they pin every request to
+the node with `curl --resolve` and additionally exercise MQTT-over-TLS:
+
+```bash
+CENOTOO_NODE_IP=203.0.113.10 \
+CENOTOO_CA_BUNDLE=./cenotoo-local-ca.crt \
+CENOTOO_ADMIN_PASSWORD='<pass>' \
+  ./scripts/26-test-remote-tls.sh --with-e2e
+```
 
 ## Run in-cluster
 

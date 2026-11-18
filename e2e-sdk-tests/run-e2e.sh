@@ -5,6 +5,12 @@
 # Usage:
 #   CENOTOO_BASE_URL=https://api.example.com \
 #   CENOTOO_USERNAME=admin CENOTOO_PASSWORD=... ./run-e2e.sh [--cleanup-only]
+#
+#   # Self-signed ingress: trust the private CA for both the preflight and
+#   # the SDK (conftest.py exports it as SSL_CERT_FILE for httpx).
+#   CENOTOO_CA_BUNDLE=deploy/k8s/.local-ca/ca.crt \
+#   CENOTOO_BASE_URL=https://api.cenotoo.local \
+#   CENOTOO_USERNAME=nostradamus CENOTOO_PASSWORD=... ./run-e2e.sh
 # =============================================================================
 set -euo pipefail
 
@@ -13,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BASE_URL="${CENOTOO_BASE_URL:-}"
 USERNAME="${CENOTOO_USERNAME:-}"
 PASSWORD="${CENOTOO_PASSWORD:-}"
+CA_BUNDLE="${CENOTOO_CA_BUNDLE:-}"
 
 passed=0
 failed=0
@@ -31,10 +38,32 @@ if [ "${#missing[@]}" -gt 0 ]; then
     exit 2
 fi
 
+# Private CA: --cacert here, and conftest.py turns the same bundle into
+# SSL_CERT_FILE so the SDK's token fetch and API calls both trust it.
+if [ -n "$CA_BUNDLE" ]; then
+    if [ ! -f "$CA_BUNDLE" ]; then
+        echo "CENOTOO_CA_BUNDLE is not a file: $CA_BUNDLE" >&2
+        exit 2
+    fi
+    export CENOTOO_CA_BUNDLE
+    info "TLS: trusting private CA bundle $CA_BUNDLE"
+else
+    info "TLS: system trust store (CENOTOO_CA_BUNDLE unset)"
+fi
+
+# api_health: GET /health, verifying the ingress cert (never --insecure).
+api_health() {
+    if [ -n "$CA_BUNDLE" ]; then
+        curl -fsS -m 5 --cacert "$CA_BUNDLE" "$BASE_URL/health"
+    else
+        curl -fsS -m 5 "$BASE_URL/health"
+    fi
+}
+
 info "Waiting for API at $BASE_URL ..."
 ready=0
 for _ in $(seq 1 90); do
-    if curl -fsS -m 5 "$BASE_URL/health" >/dev/null 2>&1; then
+    if api_health >/dev/null 2>&1; then
         ready=1
         break
     fi

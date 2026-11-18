@@ -6,6 +6,7 @@ import random
 import re
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -15,11 +16,46 @@ pytestmark = pytest.mark.e2e
 BASE_URL = os.getenv("CENOTOO_BASE_URL", "")
 USERNAME = os.getenv("CENOTOO_USERNAME", "")
 PASSWORD = os.getenv("CENOTOO_PASSWORD", "")
+CA_BUNDLE = os.getenv("CENOTOO_CA_BUNDLE", "")
 E2E_PREFIX = os.getenv("E2E_PREFIX", "e2e")
 E2E_TIMEOUT_S = float(os.getenv("E2E_TIMEOUT_S", "300"))
 E2E_INTERVAL_S = float(os.getenv("E2E_INTERVAL_S", "2"))
 
 CREDS_CONFIGURED = bool(BASE_URL and USERNAME and PASSWORD)
+
+
+def _configure_tls_trust() -> str:
+    """Point httpx's default CA bundle at a private CA, when configured.
+
+    The SDK builds API calls with ``httpx.Client(timeout, **kwargs)`` but
+    fetches OAuth2 tokens with a bare ``httpx.post()`` that accepts no
+    ``verify=`` argument, and ``ClientConfig.verify_ssl`` is bool-only and
+    never forwarded to the transport. ``SSL_CERT_FILE`` is the only knob both
+    paths honour (httpx resolves its default CA bundle from it), so it is set
+    here instead of passing ``verify=<path>`` to ``NostradamusClient``.
+
+    Returns a one-line description of the active trust mode.
+    """
+    if not CA_BUNDLE:
+        return "system trust store (CENOTOO_CA_BUNDLE unset)"
+    bundle = Path(CA_BUNDLE).expanduser()
+    if not bundle.is_file():
+        return f"system trust store (CENOTOO_CA_BUNDLE={CA_BUNDLE} is not a file)"
+    bundle = bundle.resolve()
+    current = os.environ.get("SSL_CERT_FILE", "")
+    if current and Path(current).expanduser().resolve() != bundle:
+        return f"{bundle} NOT applied (SSL_CERT_FILE already set to {current})"
+    os.environ["SSL_CERT_FILE"] = str(bundle)
+    return f"private CA bundle {bundle} (via SSL_CERT_FILE)"
+
+
+TLS_MODE = _configure_tls_trust()
+
+
+def pytest_report_header(config) -> str:
+    """Surface the trust mode in the pytest header of every e2e run."""
+    del config
+    return f"cenotoo e2e TLS: {TLS_MODE}"
 
 
 def requires_api(func):
@@ -74,6 +110,9 @@ def e2e_env():
 
 @pytest.fixture(scope="session")
 def admin_client(e2e_env):
+    # No verify= here on purpose: TLS trust is configured process-wide via
+    # SSL_CERT_FILE (_configure_tls_trust) because the SDK's token fetch is a
+    # bare httpx.post() that no per-client verification setting reaches.
     from nostradamus_ioto_sdk import NostradamusClient
 
     client = NostradamusClient(
