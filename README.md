@@ -487,6 +487,46 @@ pytest tests/ -v   # 94 tests — mocks Kafka, Cassandra, MQTT auth, CoAP
 
 The guided installer (`scripts/install.sh`) automatically runs the smoke test after install, and prompts whether to also run the full 13-suite integration battery.
 
+### Remote verification (run after setup)
+
+The suites above run **on the k3s host** and reach the API through
+`kubectl port-forward`. To prove the deployment works the way a real client
+sees it — public DNS, TLS, and MQTT over TLS — run the remote verifier from
+**outside** the cluster (your laptop or a CI runner):
+
+```bash
+CENOTOO_NODE_IP=<node-ip> \
+CENOTOO_CA_BUNDLE=deploy/k8s/.local-ca/ca.crt \
+CENOTOO_ADMIN_PASSWORD=<from .secrets/credentials.txt> \
+  ./scripts/26-test-remote-tls.sh --with-e2e
+```
+
+No cluster access is needed — `CENOTOO_NODE_IP` pins every request with
+`curl --resolve`, so local DNS is not required either. It verifies, in order:
+
+1. TCP reachability of ports 443 and 8883
+2. Certificate chain against the configured CA plus the SANs
+   (`IP:<node-ip>` and the `api` / `dashboard` / `mqtt` hostnames)
+3. HTTPS endpoints — `api.<base>/health`, `api.<base>/docs`, the dashboard,
+   and the permanent HTTP→HTTPS redirect
+4. **MQTT over TLS** — publishes with a write key to
+   `{org}/{project}/{collection}` on port 8883, then polls the REST API until
+   the row is readable (proves MQTT → bridge → Kafka → Cassandra)
+5. `--with-e2e` — the full SDK suite (`e2e-sdk-tests/`) over the same HTTPS
+   ingress: projects, collections, API keys, data send/get/delete,
+   statistics/aggregations, users, and negative cases
+
+Notes:
+
+- **Let's Encrypt deployments:** omit `CENOTOO_CA_BUNDLE` (the system trust
+  store is used). Only self-signed setups (`--self-signed --ip`) need the CA.
+- Credentials are auto-discovered from `.secrets/credentials.txt` when the env
+  vars are unset, so a deployment whose admin username is not the default still
+  works (`CENOTOO_USERNAME` / `CENOTOO_CREDENTIALS_FILE` override).
+- The script creates one ephemeral project and deletes it on exit; it never
+  modifies existing data.
+
+
 ---
 
 ## 🛠️ Tech Stack
