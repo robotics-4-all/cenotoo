@@ -5,7 +5,7 @@ import re
 import signal
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cassandra import InvalidRequest
 from cassandra.auth import PlainTextAuthProvider
@@ -64,6 +64,11 @@ def _coerce_value(value, cql_type):
                 return uuid.UUID(value)
             except (ValueError, AttributeError):
                 pass
+        elif type_name == "date":
+            try:
+                return datetime.strptime(value, "%Y-%m-%d").date()
+            except (ValueError, AttributeError):
+                pass
     return value
 
 
@@ -75,6 +80,105 @@ def _validate_identifier(name):
             "Only alphanumeric characters and underscores are allowed."
         )
     return name
+
+
+# Envelope metadata added by the MQTT/CoAP bridges; never a table column.
+# A scalar "payload" is left in place: the column filter drops it unless the
+# table really has a payload column.
+_ENVELOPE_ONLY_KEYS = ("mqtt_topic", "client_id", "ts")
+
+# How long (seconds) a cached system_schema.columns lookup stays valid, so that
+# schema changes made through the API (PATCH /schema) are picked up.
+_TABLE_COLUMNS_TTL = int(os.getenv("CASSANDRA_COLUMNS_TTL", "300"))
+
+
+def _timestamp_to_day(value):
+    """Return the UTC date (YYYY-MM-DD) of an ISO-8601 timestamp."""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return datetime.now(timezone.utc).date().isoformat()
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.date().isoformat()
+
+
+def _normalize_message(message_data, kafka_key=None):
+    """Shape bridge envelopes like the REST /send_data documents the API produces.
+
+    The payload is flattened, bridge metadata is dropped, and the primary key
+    columns (key, timestamp, day, id) are guaranteed to exist. Without them an
+    INSERT into an API-created collection table is rejected as a schema mismatch.
+    """
+    document = dict(_flatten_message(message_data))
+
+    if kafka_key is not None:
+        document["key"] = kafka_key
+    for name in _ENVELOPE_ONLY_KEYS:
+        document.pop(name, None)
+
+    if not document.get("timestamp"):
+        document["timestamp"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if not document.get("day"):
+        document["day"] = _timestamp_to_day(document["timestamp"])
+    if not document.get("id"):
+        document["id"] = str(uuid.uuid4())
+
+    return document
+
+
+# Cache of table column names keyed by (keyspace, table)
+_table_columns_cache = {}
+
+
+def _flatten_message(message_data):
+    """Hoist a dict payload onto the top level so bridge envelopes map to table columns.
+
+    Scalar payloads (raw strings, hex dumps) are left in place: they cannot map to
+    a table column and are dropped later by the column filter.
+    """
+    payload = message_data.get("payload")
+    if not isinstance(payload, dict):
+        return message_data
+
+    flattened = {name: value for name, value in message_data.items() if name != "payload"}
+    flattened.update(payload)
+    return flattened
+
+
+def _table_columns(session, keyspace, table):
+    """Return the real column names of keyspace.table, or None when unknown.
+
+    None means the lookup failed (or the table is not there yet) and the caller
+    should fall back to using the message keys as-is.
+    """
+    cache_key = (keyspace, table)
+    cached = _table_columns_cache.get(cache_key)
+    if cached is not None:
+        cached_columns, fetched_at = cached
+        if time.monotonic() - fetched_at < _TABLE_COLUMNS_TTL:
+            return cached_columns
+
+    query = "SELECT column_name FROM system_schema.columns WHERE keyspace_name=%s AND table_name=%s"
+    try:
+        rows = session.execute(query, (keyspace, table))
+        columns = {row.column_name for row in rows}
+    except Exception as exc:
+        logger.warning(
+            "Could not read columns for %s.%s: %s — falling back to message keys",
+            keyspace,
+            table,
+            exc,
+        )
+        return None
+
+    if not columns:
+        logger.warning("No columns found for %s.%s — falling back to message keys", keyspace, table)
+        return None
+
+    _table_columns_cache[cache_key] = (columns, time.monotonic())
+    return columns
 
 
 def _connect_cassandra(contact_points, port, username="", password="", max_retries=5):
@@ -174,13 +278,48 @@ def consume_and_store():
                 consumer.commit(message=msg, asynchronous=False)
                 continue
 
-            message_data = json.loads(msg.value().decode("utf-8"))
-            message_data["key"] = msg.key().decode("utf-8") if msg.key() else None
+            raw_data = json.loads(msg.value().decode("utf-8"))
+            flattened_keys = list(_flatten_message(raw_data))
+            # Only a real Kafka key overrides the payload's primary key field
+            kafka_key = msg.key().decode("utf-8") if msg.key() is not None else None
+            message_data = _normalize_message(raw_data, kafka_key)
+
+            table_columns = _table_columns(session, keyspace_name, table_name)
+            if table_columns is not None:
+                candidate_keys = list(dict.fromkeys(flattened_keys + list(message_data)))
+                skipped = [name for name in candidate_keys if name not in table_columns]
+                message_data = {
+                    name: value for name, value in message_data.items() if name in table_columns
+                }
+                if not message_data:
+                    logger.warning(
+                        "Skipping message — no columns of %s.%s match topic %s keys: %s",
+                        keyspace_name,
+                        table_name,
+                        topic,
+                        skipped,
+                    )
+                    consumer.commit(message=msg, asynchronous=False)
+                    continue
 
             columns = []
+            invalid_column = None
             for col_name in message_data:
-                _validate_identifier(col_name)
+                try:
+                    _validate_identifier(col_name)
+                except ValueError as exc:
+                    invalid_column = exc
+                    break
                 columns.append(col_name)
+            if invalid_column is not None:
+                logger.warning(
+                    "Skipping message — invalid column for %s.%s: %s",
+                    keyspace_name,
+                    table_name,
+                    invalid_column,
+                )
+                consumer.commit(message=msg, asynchronous=False)
+                continue
 
             col_key = (keyspace_name, table_name, frozenset(columns))
             if col_key not in prepared_cache:
