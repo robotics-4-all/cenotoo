@@ -325,11 +325,14 @@ untrusted — restore
 **No domain?** Use self-signed IP mode (no ACME, local CA, `SAN IP:<addr>`):
 
 ```bash
-sudo ./scripts/09-expose-api.sh --self-signed --ip 203.0.113.10
+sudo ./scripts/09-expose-api.sh --self-signed --ip 203.0.113.10 --ca-out ./cenotoo-local-ca.crt
 ```
 
-Clients must trust the printed CA cert (`curl --cacert`, `mosquitto_pub
---cafile`); browsers warn until the CA is installed.
+The local CA persists in `deploy/k8s/.local-ca/` (reused on re-run) and in
+Secret `cenotoo-public-ca` (recover with `kubectl -n cenotoo get secret
+cenotoo-public-ca -o jsonpath='{.data.ca\.crt}' | base64 -d`). Clients must
+trust the CA (`curl --cacert`, `mosquitto_pub --cafile`); browsers warn until
+the CA is installed.
 
 ## Troubleshooting
 

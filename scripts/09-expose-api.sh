@@ -20,14 +20,18 @@
 #   --force-legacy-nodeport -> EMERGENCY ROLLBACK ONLY: restore NodePort
 #                          services from git, skip the TLS apply, print an
 #                          explicit plaintext warning, exit 0.
-#   --self-signed --ip <addr> -> No public domain: mint a local CA +
+#   --self-signed --ip <addr> -> No public domain: mint (or reuse) a local CA +
 #                          server cert with SAN IP:<addr> (plus
 #                          api/dashboard/mqtt DNS for compat) via
 #                          openssl into the shared secret
 #                          cenotoo-public-tls; skip ALL ACME logic.
 #                          Mutually exclusive with rollback flag.
+#   --ca-out <path>        Write the local CA cert to <path> (self-signed
+#                          only). The CA is also persisted in
+#                          deploy/k8s/.local-ca/ and in Secret
+#                          cenotoo-public-ca for recovery.
 #
-# Self-signed example: 09-expose-api.sh --self-signed --ip 203.0.113.10
+# Self-signed example: 09-expose-api.sh --self-signed --ip 203.0.113.10 --ca-out ./cenotoo-local-ca.crt
 #
 # Legacy NodePort/plaintext mode is REMOVED (ruling R7, TLS-only
 # constraint). Any explicit request for it without the rollback flag is
@@ -70,6 +74,8 @@ Options:
   --ip <addr>              Node public IP for the self-signed SAN
                             (e.g. 203.0.113.10). IPv4 validated;
                             IPv6 (colon-hex) accepted.
+  --ca-out <path>          Write local CA cert to <path> (self-signed
+                            only; e.g. --ca-out ./cenotoo-local-ca.crt).
   --help, -h               Show this help.
 
 With no options, prompts for domain/contact, persists cenotoo.env,
@@ -77,7 +83,7 @@ renders templates, applies in order, waits for Certificate Ready, runs
 legacy cleanup, and prints the endpoint summary.
 
 Self-signed example (no public domain):
-  09-expose-api.sh --self-signed --ip 203.0.113.10
+  09-expose-api.sh --self-signed --ip 203.0.113.10 --ca-out ./cenotoo-local-ca.crt
 EOF
 }
 
@@ -120,6 +126,7 @@ NO_WAIT=false
 FORCE_LEGACY=false
 SELF_SIGNED=false
 SELF_SIGNED_IP=""
+CA_OUT=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -145,6 +152,17 @@ while [ "$#" -gt 0 ]; do
             fi
             SELF_SIGNED_IP="$2"
             shift 2
+            ;;
+        --ca-out)
+            if [ "$#" -lt 2 ]; then
+                fail "--ca-out requires a value (e.g. --ca-out ./cenotoo-local-ca.crt)."
+            fi
+            CA_OUT="$2"
+            shift 2
+            ;;
+        --ca-out=*)
+            CA_OUT="${1#--ca-out=}"
+            shift
             ;;
         --nodeport|--http-only|--no-tls|--plaintext|legacy)
             refuse_legacy_nodeport
@@ -205,6 +223,9 @@ if [ "$SELF_SIGNED" = "true" ]; then
     if [ "$NO_WAIT" = "true" ]; then
         warn "--no-wait has no effect with --self-signed (no Certificate Ready wait exists in this mode)."
     fi
+fi
+if [ -n "$CA_OUT" ] && [ "$SELF_SIGNED" != "true" ]; then
+    fail "--ca-out requires --self-signed (e.g. --self-signed --ip 203.0.113.10 --ca-out ./cenotoo-local-ca.crt)."
 fi
 banner "Cenotoo Public TLS — Expose via Ingress"
 
@@ -280,11 +301,20 @@ ok "Certificate SAN list finalized (no placeholder remains)."
 if [ "$SELF_SIGNED" = "true" ]; then
     step 2 5 "Mint local CA + server cert (self-signed, IP SAN)"
     require_cmd openssl "Install openssl, then re-run this script."
+    CA_DIR="$PROJECT_DIR/deploy/k8s/.local-ca"
+    mkdir -p "$CA_DIR"
+    chmod 0700 "$CA_DIR"
+    if [ -f "$CA_DIR/ca.key" ] && [ -f "$CA_DIR/ca.crt" ]; then
+        info "Reusing existing local CA at $CA_DIR/ca.crt (stable clients)."
+    else
+        openssl genrsa -out "$CA_DIR/ca.key" 4096 2>/dev/null
+        chmod 0600 "$CA_DIR/ca.key"
+        openssl req -x509 -new -nodes -key "$CA_DIR/ca.key" -sha256 -days 825 \
+            -subj "/CN=Cenotoo Local CA" -out "$CA_DIR/ca.crt"
+        ok "New local CA minted at $CA_DIR/ca.crt."
+    fi
     SELF_TMP="$(mktemp -d)"
     trap 'rm -rf "$SELF_TMP"' EXIT
-    openssl genrsa -out "$SELF_TMP/ca.key" 4096 2>/dev/null
-    openssl req -x509 -new -nodes -key "$SELF_TMP/ca.key" -sha256 -days 825 \
-        -subj "/CN=Cenotoo Local CA" -out "$SELF_TMP/ca.crt"
     openssl genrsa -out "$SELF_TMP/tls.key" 2048 2>/dev/null
     {
         printf '[req]\n'
@@ -297,8 +327,8 @@ if [ "$SELF_SIGNED" = "true" ]; then
     } > "$SELF_TMP/san.cnf"
     openssl req -new -key "$SELF_TMP/tls.key" -subj "/CN=${SELF_SIGNED_IP}" \
         -config "$SELF_TMP/san.cnf" -out "$SELF_TMP/tls.csr"
-    openssl x509 -req -in "$SELF_TMP/tls.csr" -CA "$SELF_TMP/ca.crt" \
-        -CAkey "$SELF_TMP/ca.key" -CAcreateserial -days 825 -sha256 \
+    openssl x509 -req -in "$SELF_TMP/tls.csr" -CA "$CA_DIR/ca.crt" \
+        -CAkey "$CA_DIR/ca.key" -CAcreateserial -days 825 -sha256 \
         -extensions ext -extfile "$SELF_TMP/san.cnf" -out "$SELF_TMP/tls.crt"
     ok "Server cert minted with SAN IP:${SELF_SIGNED_IP} (+ api/dashboard/mqtt DNS)."
     info "Apply: HelmChartConfig (kube-system, Traefik entrypoints) ..."
@@ -307,6 +337,15 @@ if [ "$SELF_SIGNED" = "true" ]; then
     kubectl create secret tls cenotoo-public-tls \
         --cert="$SELF_TMP/tls.crt" --key="$SELF_TMP/tls.key" \
         -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    info "Apply: CA bundle secret cenotoo-public-ca (recoverable) ..."
+    kubectl create secret generic cenotoo-public-ca \
+        --from-file=ca.crt="$CA_DIR/ca.crt" \
+        -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+    if [ -n "$CA_OUT" ]; then
+        mkdir -p "$(dirname "$CA_OUT")"
+        cp "$CA_DIR/ca.crt" "$CA_OUT"
+        ok "CA cert copied to $CA_OUT."
+    fi
     info "Apply: TLSStore/default in $NAMESPACE ..."
     kubectl apply -f "$RENDERED_DIR/00-traefik/tlsstore.yaml" -n "$NAMESPACE"
     info "Apply: API + dashboard ingresses ..."
@@ -323,11 +362,17 @@ if [ "$SELF_SIGNED" = "true" ]; then
         "MQTT:  mqtts://${SELF_SIGNED_IP}:8883 (SNI ${CENOTOO_MQTT_HOST})"
     echo ""
     warn "Self-signed mode: browsers/curl will NOT trust this cert until the local CA is installed."
-    dimtext "CA cert: $SELF_TMP/ca.crt (copy it off before the temp dir is removed on exit)"
-    dimtext "curl: curl --cacert <ca.crt> https://${SELF_SIGNED_IP}/docs -H 'Host: ${CENOTOO_API_HOST}' -k is NOT recommended"
-    dimtext "mqtt: mosquitto_pub --cafile <ca.crt> -h ${SELF_SIGNED_IP} -p 8883 -t test -m hi"
+    dimtext "CA cert (persistent): $CA_DIR/ca.crt"
+    dimtext "CA secret (recover anytime): kubectl -n $NAMESPACE get secret cenotoo-public-ca -o jsonpath='{.data.ca\\.crt}' | base64 -d > cenotoo-local-ca.crt"
+    if [ -n "$CA_OUT" ]; then
+        dimtext "CA copy written to: $CA_OUT"
+    else
+        dimtext "Tip: re-run with --ca-out ./cenotoo-local-ca.crt to auto-save the CA."
+    fi
+    dimtext "curl: curl --cacert $CA_DIR/ca.crt https://${SELF_SIGNED_IP}/docs -H 'Host: ${CENOTOO_API_HOST}'"
+    dimtext "mqtt: mosquitto_pub --cafile $CA_DIR/ca.crt -h ${SELF_SIGNED_IP} -p 8883 -t test -m hi"
     dimtext "Install the CA in the OS/browser trust store to silence warnings."
-    ok "Self-signed IP exposure applied (idempotent — safe to re-run)."
+    ok "Self-signed IP exposure applied (idempotent — safe to re-run; CA reused)."
     exit 0
 fi
 

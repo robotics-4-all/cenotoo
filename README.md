@@ -257,12 +257,14 @@ Let's Encrypt never issues for bare IPs, so without a domain use
 secret `cenotoo-public-tls` and skips all ACME logic:
 
 ```bash
-sudo ./scripts/09-expose-api.sh --self-signed --ip 203.0.113.10
+sudo ./scripts/09-expose-api.sh --self-signed --ip 203.0.113.10 --ca-out ./cenotoo-local-ca.crt
 ```
 
 Endpoints become `https://203.0.113.10` (with `Host: api.<base>`),
 `https://203.0.113.10` (dashboard), `mqtts://203.0.113.10:8883`.
-Every client must trust the printed CA cert (`--cacert` / `--cafile`);
+The local CA is persistent: reused on re-run from `deploy/k8s/.local-ca/`,
+mirrored in Secret `cenotoo-public-ca`, and auto-saved with `--ca-out`.
+Every client must trust the CA (`--cacert` / `--cafile`);
 browsers warn until the CA is installed. Not for production — get a domain
 and use Let's Encrypt instead.
 
