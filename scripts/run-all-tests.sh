@@ -133,7 +133,7 @@ dimtext "Namespace : $NAMESPACE"
 dimtext "Release   : $RELEASE"
 
 # ── Credential auto-discovery ────────────────────────────────────────────────
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-nostradamus}"
 
 CRED_FILE="$PROJECT_DIR/.secrets/credentials.txt"
 
@@ -141,8 +141,8 @@ CRED_FILE="$PROJECT_DIR/.secrets/credentials.txt"
 # file (accepts both ADMIN_* and CENOTOO_ADMIN_* keys; env export wins).
 # The runner is normally invoked right after install on the same host,
 # so this saves users from having to re-export creds every session. Username
-# discovery prevents the common case where install/init defaulted to a
-# non-"admin" name (e.g. "nostradamus") and breaks every API-based test suite.
+# discovery prevents the common case where install/init seeded a name other
+# than the built-in default ("nostradamus") and breaks every API-based suite.
 if [ -r "$CRED_FILE" ]; then
     if [ -z "${CENOTOO_ADMIN_USERNAME:-}" ]; then
         D_USER="$(grep -E '^(ADMIN_USERNAME|CENOTOO_ADMIN_USERNAME)=' "$CRED_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//' -e 's/"$//')"
@@ -159,7 +159,7 @@ if [ -r "$CRED_FILE" ]; then
         fi
     fi
 fi
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-nostradamus}"
 
 if [ -z "${CENOTOO_ADMIN_PASSWORD:-}" ]; then
     warn "CENOTOO_ADMIN_PASSWORD is not set and could not be auto-discovered."

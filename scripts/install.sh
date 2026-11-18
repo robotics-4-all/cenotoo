@@ -307,7 +307,7 @@ JWT_SECRET="$JWT_SECRET"
 API_KEY_SECRET="$API_KEY_SECRET"
 CASSANDRA_PASSWORD="$CASSANDRA_PASSWORD"
 POSTGRES_PASSWORD="$POSTGRES_PASSWORD"
-ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+ADMIN_USERNAME="${ADMIN_USERNAME:-nostradamus}"
 ADMIN_PASSWORD="$ADMIN_PASSWORD"
 INSTALL_MONITORING=$INSTALL_MONITORING
 INSTALL_MQTT=$INSTALL_MQTT
@@ -479,7 +479,7 @@ fi
 # Export admin credentials BEFORE 07-deploy-cenotoo.sh: it calls
 # init-cassandra-schema.sh which now reads these vars instead of prompting
 # (we run under tee, so stdin is not a TTY and an interactive read would hang).
-export CENOTOO_ADMIN_USERNAME="${ADMIN_USERNAME:-admin}"
+export CENOTOO_ADMIN_USERNAME="${ADMIN_USERNAME:-nostradamus}"
 export CENOTOO_ADMIN_PASSWORD="$ADMIN_PASSWORD"
 
 # ---- Deploy core ----------------------------------------------------------
@@ -563,7 +563,7 @@ fi
 
 if [ "${RUN_FULL_TESTS:-false}" = "true" ] && [ -x "$SCRIPT_DIR/run-all-tests.sh" ]; then
     info "Running full test suite (this may take several minutes)…"
-    if CENOTOO_ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}" \
+    if CENOTOO_ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-nostradamus}" \
        CENOTOO_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
        "$SCRIPT_DIR/run-all-tests.sh" cenotoo cenotoo; then
         SUITE_RESULT="passed"
@@ -592,11 +592,11 @@ JWT_SECRET=$JWT_SECRET
 API_KEY_SECRET=$API_KEY_SECRET
 CASSANDRA_PASSWORD=$CASSANDRA_PASSWORD
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+ADMIN_USERNAME=${ADMIN_USERNAME:-nostradamus}
 ADMIN_PASSWORD=$ADMIN_PASSWORD
 # Aliases matching the env vars the test scripts expect (run-all-tests.sh reads
 # either ADMIN_* or CENOTOO_ADMIN_* from this file, env export wins).
-CENOTOO_ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+CENOTOO_ADMIN_USERNAME=${ADMIN_USERNAME:-nostradamus}
 CENOTOO_ADMIN_PASSWORD=$ADMIN_PASSWORD
 EOF
 chmod 600 "$SECRETS_OUT_FILE"
@@ -645,7 +645,7 @@ echo -e "     kubectl get pods -n cenotoo -w"
 echo ""
 echo -e "  4. ${BOLD}Login & get a token:${RESET}"
 echo -e "     curl -X POST $API_URL/api/v1/token \\"
-echo -e "       -d 'username=admin&password=<see-credentials-file>'"
+echo -e "       -d 'username=nostradamus&password=<see-credentials-file>'"
 echo ""
 echo -e "  5. ${BOLD}Re-run tests anytime:${RESET}"
 echo -e "     ${DIM}sudo $SCRIPT_DIR/smoke-test.sh${RESET}"

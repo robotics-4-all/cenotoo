@@ -267,7 +267,7 @@ fi
 # ---------------------------------------------------------------------------
 header "API Authentication"
 # ---------------------------------------------------------------------------
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-nostradamus}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 if [ "$PF_OK" -eq 0 ]; then

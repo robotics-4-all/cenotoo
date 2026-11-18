@@ -24,7 +24,7 @@ spec:
               value: "http://cenotoo-api:8000"
             # Create once per cluster (values from .secrets/credentials.txt on the host):
             #   kubectl -n cenotoo create secret generic cenotoo-e2e-credentials \
-            #     --from-literal=username=<admin> --from-literal=password=<pass>
+            #     --from-literal=username=<nostradamus> --from-literal=password=<pass>
             - name: CENOTOO_USERNAME
               valueFrom:
                 secretKeyRef:

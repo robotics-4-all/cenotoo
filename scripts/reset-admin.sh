@@ -8,7 +8,7 @@
 #
 # Usage:
 #   sudo ./scripts/reset-admin.sh
-#   CENOTOO_ADMIN_USERNAME=admin CENOTOO_ADMIN_PASSWORD=newpass \
+#   CENOTOO_ADMIN_USERNAME=nostradamus CENOTOO_ADMIN_PASSWORD=newpass \
 #       sudo ./scripts/reset-admin.sh    # non-interactive
 # =============================================================================
 set -euo pipefail

@@ -14,14 +14,15 @@ import pytest
 pytestmark = pytest.mark.e2e
 
 BASE_URL = os.getenv("CENOTOO_BASE_URL", "")
-USERNAME = os.getenv("CENOTOO_USERNAME", "")
+USERNAME = os.getenv("CENOTOO_USERNAME", "nostradamus")
 PASSWORD = os.getenv("CENOTOO_PASSWORD", "")
 CA_BUNDLE = os.getenv("CENOTOO_CA_BUNDLE", "")
 E2E_PREFIX = os.getenv("E2E_PREFIX", "e2e")
 E2E_TIMEOUT_S = float(os.getenv("E2E_TIMEOUT_S", "300"))
 E2E_INTERVAL_S = float(os.getenv("E2E_INTERVAL_S", "2"))
 
-CREDS_CONFIGURED = bool(BASE_URL and USERNAME and PASSWORD)
+# The username is optional: single seeded admin account (default "nostradamus").
+CREDS_CONFIGURED = bool(BASE_URL and PASSWORD)
 
 
 def _configure_tls_trust() -> str:
@@ -61,7 +62,7 @@ def pytest_report_header(config) -> str:
 def requires_api(func):
     return pytest.mark.skipif(
         not CREDS_CONFIGURED,
-        reason="Set CENOTOO_BASE_URL, CENOTOO_USERNAME, CENOTOO_PASSWORD to run e2e",
+        reason="Set CENOTOO_BASE_URL + CENOTOO_PASSWORD to run e2e (CENOTOO_USERNAME optional)",
     )(func)
 
 
@@ -104,7 +105,7 @@ def wait_for(
 @pytest.fixture(scope="session")
 def e2e_env():
     if not CREDS_CONFIGURED:
-        pytest.skip("e2e requires CENOTOO_BASE_URL + CENOTOO_USERNAME + CENOTOO_PASSWORD")
+        pytest.skip("e2e requires CENOTOO_BASE_URL + CENOTOO_PASSWORD (CENOTOO_USERNAME optional, default nostradamus)")
     return {"base_url": BASE_URL, "username": USERNAME, "password": PASSWORD}
 
 

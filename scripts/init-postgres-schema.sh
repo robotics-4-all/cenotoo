@@ -173,9 +173,9 @@ else
         echo ""
 
         if [ -z "$ADMIN_USER" ]; then
-            printf "  Admin username [admin]: "
+            printf "  Admin username [nostradamus]: "
             read -r _input
-            ADMIN_USER="${_input:-admin}"
+            ADMIN_USER="${_input:-nostradamus}"
         fi
 
         while [ -z "$ADMIN_PASS" ]; do

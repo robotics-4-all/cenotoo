@@ -137,7 +137,7 @@ pass "API port-forward active and healthy (pid $PF_API_PID)"
 # ---------------------------------------------------------------------------
 header "API Authentication & Setup"
 # ---------------------------------------------------------------------------
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-nostradamus}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 AUTH_HTTP=$(_api POST "${API_BASE}/token" \

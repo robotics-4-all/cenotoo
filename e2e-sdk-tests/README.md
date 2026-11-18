@@ -33,19 +33,20 @@ There is deliberately no `like` operator.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `CENOTOO_BASE_URL` | API base (no `/api/v1` suffix) | `http://cenotoo-api:8000` (in-cluster) or `https://api.<base-domain>` (public TLS) |
-| `CENOTOO_USERNAME` / `CENOTOO_PASSWORD` | Seeded admin (OAuth2 password flow) | — (required) |
+| `CENOTOO_PASSWORD` | Seeded admin password (OAuth2 password flow) | — (required) |
+| `CENOTOO_USERNAME` | Seeded admin username | `nostradamus` |
 | `CENOTOO_CA_BUNDLE` | PEM CA bundle for a private/self-signed ingress. `conftest.py` exports it as `SSL_CERT_FILE`, so both the SDK's bare `httpx.post()` token fetch and its `httpx.Client` API calls trust it (never `--insecure`) | unset → system trust store |
 | `E2E_PREFIX` | Resource name prefix | `e2e` |
 | `E2E_TIMEOUT_S` / `E2E_INTERVAL_S` | Poll-with-timeout for eventual consistency | `120` / `2` |
 
-Without `CENOTOO_BASE_URL` + creds the suite **skips** (exit 0), never fails —
+Without `CENOTOO_BASE_URL` + `CENOTOO_PASSWORD` the suite **skips** (exit 0), never fails —
 plain `pytest tests/` stays unaffected.
 
 ## Run locally
 
 ```bash
 CENOTOO_BASE_URL=https://api.example.com \
-CENOTOO_USERNAME=admin CENOTOO_PASSWORD='<from .secrets/credentials.txt>' \
+CENOTOO_USERNAME=nostradamus CENOTOO_PASSWORD='<from .secrets/credentials.txt>' \
   ./e2e-sdk-tests/run-e2e.sh
 # or directly:
 CENOTOO_BASE_URL=... CENOTOO_USERNAME=... CENOTOO_PASSWORD=... \
@@ -58,7 +59,7 @@ CENOTOO_BASE_URL=... CENOTOO_USERNAME=... CENOTOO_PASSWORD=... \
 docker build -t sdk-e2e-tests:latest ./e2e-sdk-tests
 docker run --rm \
   -e CENOTOO_BASE_URL=https://api.example.com \
-  -e CENOTOO_USERNAME=admin -e CENOTOO_PASSWORD='<pass>' \
+  -e CENOTOO_USERNAME=nostradamus -e CENOTOO_PASSWORD='<pass>' \
   sdk-e2e-tests:latest
 ```
 
@@ -70,7 +71,7 @@ the suite against the public endpoint:
 ```bash
 sudo ./scripts/set-domain.sh --domain example.com --email ops@example.com --apply
 CENOTOO_BASE_URL=https://api.example.com \
-CENOTOO_USERNAME=admin CENOTOO_PASSWORD='<from .secrets/credentials.txt>' \
+CENOTOO_USERNAME=nostradamus CENOTOO_PASSWORD='<from .secrets/credentials.txt>' \
   ./e2e-sdk-tests/run-e2e.sh
 ```
 
@@ -125,7 +126,7 @@ CENOTOO_ADMIN_PASSWORD='<pass>' \
 ```bash
 # One-time secret (admin values from the host's .secrets/credentials.txt):
 kubectl -n cenotoo create secret generic cenotoo-e2e-credentials \
-  --from-literal=username=admin --from-literal=password='<pass>'
+  --from-literal=username=nostradamus --from-literal=password='<pass>'
 # Image must be imported (scripts/build-images.sh does this):
 kubectl apply -f e2e-sdk-tests/k8s/job.yaml
 kubectl logs -n cenotoo job/sdk-e2e-tests

@@ -4,7 +4,7 @@
 #
 # Usage:
 #   CENOTOO_BASE_URL=https://api.example.com \
-#   CENOTOO_USERNAME=admin CENOTOO_PASSWORD=... ./run-e2e.sh [--cleanup-only]
+#   CENOTOO_PASSWORD=... ./run-e2e.sh [--cleanup-only]
 #
 #   # Self-signed ingress: trust the private CA for both the preflight and
 #   # the SDK (conftest.py exports it as SSL_CERT_FILE for httpx).
@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 BASE_URL="${CENOTOO_BASE_URL:-}"
-USERNAME="${CENOTOO_USERNAME:-}"
+USERNAME="${CENOTOO_USERNAME:-nostradamus}"
 PASSWORD="${CENOTOO_PASSWORD:-}"
 CA_BUNDLE="${CENOTOO_CA_BUNDLE:-}"
 
@@ -28,12 +28,13 @@ pass() { printf '\033[1;32m  PASS\033[0m  %s\n' "$*"; passed=$((passed + 1)); }
 fail() { printf '\033[1;31m  FAIL\033[0m  %s\n' "$*"; failed=$((failed + 1)); }
 info() { printf '\033[1;34m  ....\033[0m  %s\n' "$*"; }
 
+# Username is optional: the API seeds a single admin account (default
+# "nostradamus"); only the password is required.
 missing=()
 [ -z "$BASE_URL" ] && missing+=("CENOTOO_BASE_URL")
-[ -z "$USERNAME" ] && missing+=("CENOTOO_USERNAME")
 [ -z "$PASSWORD" ] && missing+=("CENOTOO_PASSWORD")
 if [ "${#missing[@]}" -gt 0 ]; then
-    echo "Usage: CENOTOO_BASE_URL=<url> CENOTOO_USERNAME=<user> CENOTOO_PASSWORD=<pass> $0"
+    echo "Usage: CENOTOO_BASE_URL=<url> CENOTOO_PASSWORD=<pass> [CENOTOO_USERNAME=<user>] $0"
     echo "Missing: ${missing[*]}"
     exit 2
 fi

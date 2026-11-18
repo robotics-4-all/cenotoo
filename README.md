@@ -281,7 +281,7 @@ BASE="https://api.<base-domain>/api/v1"
 
 # Authenticate
 TOKEN=$(curl -s -X POST "$BASE/token" \
-  -d "username=admin&password=<pass>" | jq -r .access_token)
+  -d "username=nostradamus&password=<pass>" | jq -r .access_token)
 
 # Create a project and collection
 PROJECT=$(curl -s -X POST "$BASE/projects" \

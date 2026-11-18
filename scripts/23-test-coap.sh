@@ -222,7 +222,7 @@ fi
 # ---------------------------------------------------------------------------
 header "API Setup"
 # ---------------------------------------------------------------------------
-ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-admin}"
+ADMIN_USERNAME="${CENOTOO_ADMIN_USERNAME:-nostradamus}"
 ADMIN_PASSWORD="${CENOTOO_ADMIN_PASSWORD}"
 
 _RESP_FILE="/tmp/cenotoo_coap_test_resp_$$.json"
