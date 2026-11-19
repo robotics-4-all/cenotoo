@@ -1,6 +1,7 @@
 # Cenotoo Example Notebooks (SDK-first)
 
 Small-to-medium bootstrapping notebooks. REST via `nostradamus-ioto-sdk`; transports via `paho-mqtt` / `aiocoap`.
+Notebook 07 is the plain-`requests` walkthrough (no SDK) for the same REST API.
 
 | # | Notebook | Covers |
 |---|----------|--------|
@@ -10,6 +11,7 @@ Small-to-medium bootstrapping notebooks. REST via `nostradamus-ioto-sdk`; transp
 | 04 | `04_coap_ingestion.ipynb` | CoAP `POST /{org}/{project}/{collection}?key=` + SDK verify |
 | 05 | `05_flink_aggregation_pipeline.ipynb` | avg(temperature) 1-min tumbling window + DELETE 404 proof |
 | 06 | `06_async_client_smoke.ipynb` | Async client parity + no-leakage audit |
+| 07 | `07_rest_api_plain_http_soil_demo.ipynb` | Plain-`requests` REST walkthrough (JWT + API keys): project/keys/collection, send, filters, stats, delete |
 
 ## Setup
 
@@ -26,7 +28,8 @@ kubectl port-forward svc/cenotoo-mosquitto 1883:1883 -n cenotoo &
 # CoAP bridge UDP 5683 (see deploy/k8s/10-coap/)
 ```
 
-Run order 01 → 06 (`Kernel → Restart & Run All` each).
+Run order 01 → 07 (`Kernel → Restart & Run All` each). Notebook 07 is the only
+plain-`requests` example (no SDK) and targets the same REST API.
 
 ## Skip behavior (never fail on env gaps)
 
