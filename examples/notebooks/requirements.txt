@@ -4,3 +4,4 @@ paho-mqtt==2.1.0
 aiocoap
 jupyter
 python-dotenv
+requests
